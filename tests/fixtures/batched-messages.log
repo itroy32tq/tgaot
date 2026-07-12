@@ -1,0 +1,1 @@
+{"timestamp":"1000","greToClientEvent":{"greToClientMessages":[{"type":"GREMessageType_GameStateMessage","msgId":1,"gameStateMessage":{"type":"GameStateType_Full"}},{"type":"GREMessageType_TimerStateMessage","msgId":2,"timerStateMessage":{"seatId":1}}]}}

@@ -1,9 +1,15 @@
+using System.Text.Json;
+
 namespace MtgaBot.Ingest;
 
 public sealed record GreEvent(
     ulong Sequence,
-    DateTimeOffset Timestamp,
+    DateTimeOffset? Timestamp,
     string RawLine,
-    GreMessage Message);
+    GreMessage Message,
+    int MessageIndex);
 
-public sealed record GreMessage(string Type, string RawPayload);
+public sealed record GreMessage(
+    string Type,
+    JsonElement Payload,
+    GreTrafficDirection Direction);
