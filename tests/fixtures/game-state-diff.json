@@ -1,0 +1,35 @@
+{
+  "type": "GameStateType_Diff",
+  "gameStateId": 2,
+  "turnInfo": {
+    "phase": "Phase_Main1",
+    "step": "Step_Main",
+    "turnNumber": 1,
+    "activePlayer": 1,
+    "priorityPlayer": 1,
+    "decisionPlayer": 1
+  },
+  "players": [
+    { "lifeTotal": 20, "systemSeatNumber": 1 },
+    { "lifeTotal": 20, "systemSeatNumber": 2 }
+  ],
+  "zones": [
+    {
+      "zoneId": 31,
+      "type": "ZoneType_Hand",
+      "ownerSeatId": 1,
+      "objectInstanceIds": [ 101, 102 ]
+    }
+  ],
+  "gameObjects": [
+    { "instanceId": 101, "grpId": 1001, "zoneId": 31, "ownerSeatId": 1 },
+    { "instanceId": 102, "grpId": 1002, "zoneId": 31, "ownerSeatId": 1 }
+  ],
+  "actions": [
+    {
+      "seatId": 1,
+      "action": { "actionType": "ActionType_Cast", "instanceId": 101 }
+    }
+  ],
+  "pendingMessageCount": 0
+}
