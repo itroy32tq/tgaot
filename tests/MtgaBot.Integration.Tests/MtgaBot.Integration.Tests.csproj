@@ -22,6 +22,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MtgaBot.Host\MtgaBot.Host.csproj" />
+    <ProjectReference Include="..\..\src\MtgaBot.Ingest\MtgaBot.Ingest.csproj" />
+    <ProjectReference Include="..\..\src\MtgaBot.State\MtgaBot.State.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\fixtures\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="fixtures" />
   </ItemGroup>
 
 </Project>
