@@ -13,17 +13,14 @@ public interface IShadowReporter
 
     void OnFollowStarted();
 
+    void OnGreEvent(int eventCount, string messageType);
+
     void OnError(string message);
 }
 
-public sealed class ShadowConsoleReporter : IShadowReporter
+public sealed class ShadowConsoleReporter(TextWriter? output = null) : IShadowReporter
 {
-    private readonly TextWriter _output;
-
-    public ShadowConsoleReporter(TextWriter? output = null)
-    {
-        _output = output ?? Console.Out;
-    }
+    private readonly TextWriter _output = output ?? Console.Out;
 
     public void OnStarted(ShadowOptions options)
     {
@@ -49,7 +46,20 @@ public sealed class ShadowConsoleReporter : IShadowReporter
     public void OnFollowStarted()
     {
         _output.WriteLine("following… (Ctrl+C to stop)");
+        _output.WriteLine("waiting for new GRE lines after start (make in-game actions)");
         _output.WriteLine();
+    }
+
+    public void OnGreEvent(int eventCount, string messageType)
+    {
+        if (eventCount == 1)
+        {
+            _output.WriteLine($"ingest: receiving GRE events (first: {messageType})");
+        }
+        else if (eventCount % 50 == 0)
+        {
+            _output.WriteLine($"ingest: events={eventCount} (latest: {messageType})");
+        }
     }
 
     public void OnError(string message)
@@ -86,7 +96,7 @@ public sealed class ShadowConsoleReporter : IShadowReporter
     private static string FormatAction(LegalAction action)
     {
         var type = ShortActionType(action.ActionType);
-        return action.InstanceId is int id ? $"{type}({id})" : type;
+        return action.InstanceId is { } id ? $"{type}({id})" : type;
     }
 
     private static string ShortActionType(string actionType)

@@ -67,4 +67,49 @@ public class GreLogTailerTests
 
         Assert.Empty(events);
     }
+
+    [Fact]
+    public async Task TailLive_SeesLinesAppendedAfterEof()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mtgabot-tail-{Guid.NewGuid():N}.log");
+        await File.WriteAllTextAsync(path, "bootstrap\n");
+
+        try
+        {
+            var tailer = new GreLogTailer();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+
+            var consume = Task.Run(async () =>
+            {
+                await foreach (var evt in tailer.TailLive(path, cts.Token))
+                {
+                    return evt;
+                }
+
+                throw new InvalidOperationException("Tail ended without events.");
+            }, cts.Token);
+
+            // Let TailLive seek to EOF before we append.
+            await Task.Delay(400);
+
+            const string greLine =
+                """{"timestamp":"1000","greToClientEvent":{"greToClientMessages":[{"type":"GREMessageType_TimerStateMessage","msgId":1,"timerStateMessage":{"seatId":1}}]}}""";
+            await File.AppendAllTextAsync(path, greLine + Environment.NewLine);
+
+            var got = await consume.WaitAsync(TimeSpan.FromSeconds(5), cts.Token);
+            Assert.Equal("GREMessageType_TimerStateMessage", got.Message.Type);
+            await cts.CancelAsync();
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+                // ignore cleanup races on Windows
+            }
+        }
+    }
 }

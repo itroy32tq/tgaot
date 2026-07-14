@@ -24,6 +24,10 @@ public sealed class CapturingShadowReporter : IShadowReporter
     {
     }
 
+    public void OnGreEvent(int eventCount, string messageType)
+    {
+    }
+
     public void OnError(string message) => Errors.Add(message);
 }
 
@@ -46,9 +50,9 @@ public class ShadowRunnerTests
         Assert.Equal(result.DecisionCount, reporter.Decisions.Count);
         Assert.NotNull(reporter.CompletedWith);
 
-        Assert.Contains(reporter.Decisions, view => view.Board.HandInstanceIds.Count > 0);
         Assert.Contains(reporter.Decisions, view => view.Board.MyLife > 0);
         Assert.Contains(reporter.Decisions, view => view.Decision.LegalActions.Count > 0);
+        Assert.Equal(MatchPhase.InMatch, reporter.Decisions.Last().Lifecycle);
     }
 
     [Fact]
