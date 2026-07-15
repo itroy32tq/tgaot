@@ -52,6 +52,38 @@ public class GameStateReducerTests
         Assert.Equal(1, reducer.State.GameObjects[0]["instanceId"].GetInt32());
     }
 
+    [Fact]
+    public void ApplyGameStateMessage_Diff_ClearsPendingWhenFieldOmitted()
+    {
+        var reducer = new GameStateReducer();
+        const string withPending = """
+            {
+              "type": "GameStateType_Diff",
+              "pendingMessageCount": 1,
+              "turnInfo": { "phase": "Phase_Main1", "step": "Step_Begin", "turnNumber": 1 }
+            }
+            """;
+        const string withoutPending = """
+            {
+              "type": "GameStateType_Diff",
+              "turnInfo": { "phase": "Phase_Main1", "step": "Step_Begin", "turnNumber": 1 },
+              "actions": [
+                { "seatId": 1, "action": { "actionType": "ActionType_Pass" } }
+              ]
+            }
+            """;
+
+        using var pendingDoc = JsonDocument.Parse(withPending);
+        using var clearDoc = JsonDocument.Parse(withoutPending);
+
+        reducer.ApplyGameStateMessage(pendingDoc.RootElement);
+        Assert.Equal(1, reducer.State.PendingMessageCount);
+
+        reducer.ApplyGameStateMessage(clearDoc.RootElement);
+        Assert.Equal(0, reducer.State.PendingMessageCount);
+        Assert.Single(reducer.State.Actions);
+    }
+
     private static string FixturePath(string name) =>
         Path.Combine(AppContext.BaseDirectory, "fixtures", name);
 }

@@ -77,7 +77,20 @@ public sealed class GreLogTailer : IGreEventSource
             throw new FileNotFoundException("Player.log not found.", path);
         }
 
-        return _parser.ParseLines(File.ReadLines(path));
+        // MTGA keeps Player.log open for write; allow shared read for replay/diagnostics.
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        var lines = new List<string>();
+        while (reader.ReadLine() is { } line)
+        {
+            lines.Add(line);
+        }
+
+        return _parser.ParseLines(lines);
     }
 
     private static async Task RecoverFromEofAsync(

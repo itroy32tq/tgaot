@@ -60,10 +60,16 @@ public sealed class GameStateReducer
             State.Turn = ParseTurnInfo(turnInfoElement);
         }
 
+        // GRE omits pendingMessageCount when the state is stable (0). If we keep a
+        // sticky non-zero from an earlier Diff, DecisionGate never opens again.
         if (diff.TryGetProperty("pendingMessageCount", out var pendingElement)
             && pendingElement.TryGetInt32(out var pendingCount))
         {
             State.PendingMessageCount = pendingCount;
+        }
+        else
+        {
+            State.PendingMessageCount = 0;
         }
 
         var deletedInstanceIds = diff.TryGetProperty("diffDeletedInstanceIds", out var deletedInstances)
@@ -119,7 +125,10 @@ public sealed class GameStateReducer
         if (diff.TryGetProperty("actions", out var actionsElement))
         {
             State.Actions.Clear();
-            State.Actions.AddRange(ParseLegalActions(actionsElement));
+            if (actionsElement.ValueKind == JsonValueKind.Array)
+            {
+                State.Actions.AddRange(ParseLegalActions(actionsElement));
+            }
         }
     }
 
