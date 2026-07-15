@@ -1,4 +1,5 @@
 using System.Text;
+using MtgaBot.Decide;
 using MtgaBot.State;
 
 namespace MtgaBot.Host.Shadow;
@@ -7,7 +8,7 @@ public interface IShadowReporter
 {
     void OnStarted(ShadowOptions options);
 
-    void OnDecision(GameView view);
+    void OnDecision(GameView view, Intent intent);
 
     void OnReplayComplete(ShadowRunResult result);
 
@@ -25,15 +26,16 @@ public sealed class ShadowConsoleReporter(TextWriter? output = null) : IShadowRe
     public void OnStarted(ShadowOptions options)
     {
         _output.WriteLine(
-            $"MtgaBot shadow ({MtgaBotHost.Version}) — Ingest+State, no clicks");
+            $"MtgaBot shadow ({MtgaBotHost.Version}) — Ingest+State+Decide, no clicks");
         _output.WriteLine(
-            $"log: {options.LogPath}  mode: {(options.Follow ? "follow" : "replay")}");
+            $"log: {options.LogPath}  mode: {(options.Follow ? "follow" : "replay")}  policy: {options.PolicyName}");
         _output.WriteLine();
     }
 
-    public void OnDecision(GameView view)
+    public void OnDecision(GameView view, Intent intent)
     {
         _output.WriteLine(FormatDecision(view));
+        _output.WriteLine($"  → Intent: {IntentFormatter.Format(intent)}");
     }
 
     public void OnReplayComplete(ShadowRunResult result)

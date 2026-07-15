@@ -40,7 +40,7 @@ static async Task<int> RunShadowAsync(string[] shadowArgs)
     };
 
     var reporter = new ShadowConsoleReporter();
-    var runner = new ShadowRunner(reporter);
+    var runner = new ShadowRunner(reporter, options);
 
     try
     {

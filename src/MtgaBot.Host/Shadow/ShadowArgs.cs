@@ -10,6 +10,7 @@ public static class ShadowArgs
 
         string? logPath = null;
         var follow = false;
+        string? policyName = null;
 
         for (var i = 0; i < args.Count; i++)
         {
@@ -27,6 +28,14 @@ public static class ShadowArgs
                 case "--follow":
                     follow = true;
                     break;
+                case "--policy":
+                    if (i + 1 >= args.Count)
+                    {
+                        throw new ArgumentException("Missing value for --policy.");
+                    }
+
+                    policyName = args[++i];
+                    break;
                 case "--help":
                 case "-h":
                     throw new ArgumentException(Usage);
@@ -36,22 +45,23 @@ public static class ShadowArgs
         }
 
         logPath ??= locator.GetDefaultPlayerLogPath();
-        return new ShadowOptions(logPath, follow);
+        return new ShadowOptions(logPath, follow, policyName ?? "FarmMvp");
     }
 
     public const string Usage =
         """
-        Usage: MtgaBot.Cli shadow [--log <path>] [--follow]
+        Usage: MtgaBot.Cli shadow [--log <path>] [--follow] [--policy FarmMvp|Pass]
 
-          --log <path>   Player.log path (default: MTGA LocalLow path)
-          --follow       Tail live from end of file (no clicks)
-          --help         Show this help
+          --log <path>     Player.log path (default: MTGA LocalLow path)
+          --follow         Tail live from end of file (no clicks)
+          --policy <name>  Decision policy (default: FarmMvp)
+          --help           Show this help
 
-        Replay (Ingest + State, print DecisionReady views):
-          MtgaBot.Cli shadow --log path\to\Player.log
+        Replay (Ingest + State + Decide, print DecisionReady + Intent):
+          MtgaBot.Cli shadow --log path\to\Player.log --policy FarmMvp
 
         Live tail during a manual match:
           MtgaBot.Cli shadow --follow
-          MtgaBot.Cli shadow --follow --log path\to\Player.log
+          MtgaBot.Cli shadow --follow --policy Pass
         """;
 }

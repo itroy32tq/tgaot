@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\MtgaBot.Host\MtgaBot.Host.csproj" />
     <ProjectReference Include="..\..\src\MtgaBot.Ingest\MtgaBot.Ingest.csproj" />
     <ProjectReference Include="..\..\src\MtgaBot.State\MtgaBot.State.csproj" />
+    <ProjectReference Include="..\..\src\MtgaBot.Decide\MtgaBot.Decide.csproj" />
   </ItemGroup>
 
   <ItemGroup>

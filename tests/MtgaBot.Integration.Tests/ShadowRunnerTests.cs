@@ -1,3 +1,4 @@
+using MtgaBot.Decide;
 using MtgaBot.Host.Shadow;
 using MtgaBot.Ingest;
 using MtgaBot.State;
@@ -8,6 +9,8 @@ public sealed class CapturingShadowReporter : IShadowReporter
 {
     public List<GameView> Decisions { get; } = [];
 
+    public List<Intent> Intents { get; } = [];
+
     public ShadowOptions? StartedWith { get; private set; }
 
     public ShadowRunResult? CompletedWith { get; private set; }
@@ -16,7 +19,11 @@ public sealed class CapturingShadowReporter : IShadowReporter
 
     public void OnStarted(ShadowOptions options) => StartedWith = options;
 
-    public void OnDecision(GameView view) => Decisions.Add(view);
+    public void OnDecision(GameView view, Intent intent)
+    {
+        Decisions.Add(view);
+        Intents.Add(intent);
+    }
 
     public void OnReplayComplete(ShadowRunResult result) => CompletedWith = result;
 
@@ -34,25 +41,29 @@ public sealed class CapturingShadowReporter : IShadowReporter
 public class ShadowRunnerTests
 {
     [Fact]
-    public async Task ReplayFixture_EmitsDecisionsWithHandAndLife()
+    public async Task ReplayFixture_EmitsDecisionsWithIntents()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "hand-select-log_tail.txt");
         Assert.True(File.Exists(path), $"fixture missing: {path}");
 
         var reporter = new CapturingShadowReporter();
-        var runner = new ShadowRunner(reporter);
-        var options = new ShadowOptions(path, Follow: false);
+        var runner = new ShadowRunner(reporter, new ShadowOptions(path, Follow: false, PolicyName: "FarmMvp"));
+        var options = new ShadowOptions(path, Follow: false, PolicyName: "FarmMvp");
 
         var result = await runner.RunAsync(options, CancellationToken.None);
 
         Assert.True(result.EventCount > 0);
         Assert.True(result.DecisionCount > 0);
         Assert.Equal(result.DecisionCount, reporter.Decisions.Count);
+        Assert.Equal(result.DecisionCount, reporter.Intents.Count);
         Assert.NotNull(reporter.CompletedWith);
 
         Assert.Contains(reporter.Decisions, view => view.Board.MyLife > 0);
         Assert.Contains(reporter.Decisions, view => view.Decision.LegalActions.Count > 0);
         Assert.Equal(MatchPhase.InMatch, reporter.Decisions.Last().Lifecycle);
+
+        Assert.All(reporter.Intents.Zip(reporter.Decisions), pair =>
+            Assert.True(IntentValidator.IsLegal(pair.First, pair.Second.Decision)));
     }
 
     [Fact]
@@ -102,6 +113,15 @@ public class ShadowArgsTests
 
         Assert.Equal(@"C:\tmp\Player.log", options.LogPath);
         Assert.True(options.Follow);
+        Assert.Equal("FarmMvp", options.PolicyName);
+    }
+
+    [Fact]
+    public void Parse_Policy()
+    {
+        var options = ShadowArgs.Parse(["--log", @"C:\tmp\Player.log", "--policy", "Pass"]);
+
+        Assert.Equal("Pass", options.PolicyName);
     }
 
     [Fact]
@@ -117,7 +137,7 @@ public class ShadowArgsTests
     [Fact]
     public void Parse_UnknownArg_Throws()
     {
-        Assert.Throws<ArgumentException>(() => ShadowArgs.Parse(["--policy", "FarmMvp"]));
+        Assert.Throws<ArgumentException>(() => ShadowArgs.Parse(["--unknown"]));
     }
 
     private sealed class StubLocator(string path) : IPlayerLogLocator

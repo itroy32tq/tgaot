@@ -1,12 +1,26 @@
+using MtgaBot.Decide;
 using MtgaBot.Ingest;
 using MtgaBot.State;
 
 namespace MtgaBot.Host.Shadow;
 
-public sealed class ShadowRunner(GreLogTailer tailer, IShadowReporter reporter)
+public sealed class ShadowRunner(
+    GreLogTailer tailer,
+    IShadowReporter reporter,
+    IPolicy policy,
+    ICardDatabase cards)
 {
+    public ShadowRunner(IShadowReporter reporter, ShadowOptions options)
+        : this(
+            new GreLogTailer(),
+            reporter,
+            PolicyFactory.Create(options.PolicyName),
+            EmptyCardDatabase.Instance)
+    {
+    }
+
     public ShadowRunner(IShadowReporter reporter)
-        : this(new GreLogTailer(), reporter)
+        : this(new GreLogTailer(), reporter, new FarmMvpPolicy(), EmptyCardDatabase.Instance)
     {
     }
 
@@ -28,7 +42,8 @@ public sealed class ShadowRunner(GreLogTailer tailer, IShadowReporter reporter)
         engine.DecisionReady += view =>
         {
             decisionCount++;
-            reporter.OnDecision(view);
+            var intent = policy.Decide(view, cards);
+            reporter.OnDecision(view, intent);
         };
 
         if (options.Follow)
