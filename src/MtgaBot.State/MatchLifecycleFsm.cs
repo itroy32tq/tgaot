@@ -8,7 +8,7 @@ internal sealed class MatchLifecycleFsm
 
     public void ApplyGreMessage(string messageType, JsonElement message)
     {
-        if (messageType == "GREMessageType_GameStateMessage")
+        if (messageType is "GREMessageType_GameStateMessage" or "GREMessageType_QueuedGameStateMessage")
         {
             if (message.TryGetProperty("gameStateMessage", out var gameState)
                 && gameState.TryGetProperty("type", out var typeElement)

@@ -38,6 +38,7 @@ public sealed class StateEngine : IStateEngine
     private int? _mySeatId;
     private ulong _currentDecisionId;
     private ulong _lastEmittedDecisionId;
+    private string? _lastEmittedSignature;
 
     public event Action<GameView>? DecisionReady;
 
@@ -54,6 +55,7 @@ public sealed class StateEngine : IStateEngine
         switch (type)
         {
             case "GREMessageType_GameStateMessage":
+            case "GREMessageType_QueuedGameStateMessage":
                 ApplyGameStateMessage(payload);
                 break;
             case "GREMessageType_TimerStateMessage":
@@ -70,6 +72,10 @@ public sealed class StateEngine : IStateEngine
             case "ClientMessageType_SelectTargetsResp":
                 _annotationTracker.RemoveByType(_reducer.State, "AnnotationType_PlayerSelectingTargets", _mySeatId);
                 break;
+            case "ClientMessageType_MulliganResp":
+                // Keep/mulligan answered — unlock so the next MainPhase can open.
+                _promptTracker.Clear();
+                break;
             case "MatchGameRoomStateChanged":
                 _lifecycle.ApplyMatchState(payload);
                 break;
@@ -83,7 +89,7 @@ public sealed class StateEngine : IStateEngine
                 break;
         }
 
-        if (type == "GREMessageType_GameStateMessage"
+        if ((type is "GREMessageType_GameStateMessage" or "GREMessageType_QueuedGameStateMessage")
             && _reducer.State.Actions.Count > 0
             && _mySeatId is not null)
         {
@@ -102,7 +108,7 @@ public sealed class StateEngine : IStateEngine
         }
 
         var snapshot = _snapshotBuilder.Build(_reducer.State, seatId);
-        var decision = _promptTracker.BuildDecisionPoint(_currentDecisionId);
+        var decision = _promptTracker.BuildDecisionPoint(_currentDecisionId, snapshot);
         if (decision is null || !_decisionGate.CanDecide(snapshot, decision, ActuatorBusy))
         {
             return null;
@@ -128,13 +134,31 @@ public sealed class StateEngine : IStateEngine
             return;
         }
 
+        var isFull = gameStateMessage.TryGetProperty("type", out var typeElement)
+            && typeElement.GetString() == "GameStateType_Full";
+        var actionsPresent = gameStateMessage.TryGetProperty("actions", out _);
+
         _reducer.ApplyGameStateMessage(gameStateMessage);
 
-        if (_reducer.State.Actions.Count > 0 && _mySeatId is int seatId)
+        if (isFull)
         {
-            var seatActions = _reducer.State.Actions.Where(action => action.SeatId == seatId).ToList();
-            _promptTracker.ApplyGameStateActions(seatActions, seatId, _reducer.State.Turn);
+            _promptTracker.Clear();
         }
+
+        if (_mySeatId is not int seatId)
+        {
+            return;
+        }
+
+        // Only sync PromptTracker from GameState when this Diff actually carried actions
+        // (including empty arrays). Omitting the field means "unchanged" in GRE.
+        if (!actionsPresent && !isFull)
+        {
+            return;
+        }
+
+        var seatActions = _reducer.State.Actions.Where(action => action.SeatId == seatId).ToList();
+        _promptTracker.ApplyGameStateActions(seatActions, seatId, _reducer.State.Turn);
     }
 
     private void UpdateSeatId(string messageType, JsonElement message)
@@ -160,16 +184,18 @@ public sealed class StateEngine : IStateEngine
             return 0;
         }
 
+        var seats = new List<int>();
         foreach (var seat in seatsElement.EnumerateArray())
         {
-            if (seat.TryGetInt32(out var parsed))
+            if (seat.TryGetInt32(out var parsed) && parsed > 0)
             {
-                return parsed;
+                seats.Add(parsed);
             }
         }
 
         _ = preferPromptTypes;
-        return 0;
+        // Ambiguous multi-seat arrays (e.g. PromptReq [1,2]) must not overwrite MySeatId.
+        return seats.Count == 1 ? seats[0] : 0;
     }
 
     private void TryEmitDecision()
@@ -180,12 +206,15 @@ public sealed class StateEngine : IStateEngine
             return;
         }
 
-        if (view.Decision.DecisionId == _lastEmittedDecisionId)
+        var signature = LegalActionFilter.BuildSignature(view);
+        if (view.Decision.DecisionId == _lastEmittedDecisionId
+            || string.Equals(signature, _lastEmittedSignature, StringComparison.Ordinal))
         {
             return;
         }
 
         _lastEmittedDecisionId = view.Decision.DecisionId;
+        _lastEmittedSignature = signature;
         DecisionReady?.Invoke(view);
     }
 }

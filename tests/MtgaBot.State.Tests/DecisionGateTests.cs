@@ -6,13 +6,23 @@ namespace MtgaBot.State.Tests;
 public class DecisionGateTests
 {
     [Fact]
-    public void CanDecide_WhenPendingMessages_BlocksDecision()
+    public void CanDecide_WhenPendingMessages_BlocksMainPhase()
     {
         var gate = new DecisionGate();
         var snapshot = CreateSnapshot(pendingMessageCount: 1);
-        var decision = CreateDecision();
+        var decision = CreateDecision(DecisionKind.MainPhase);
 
         Assert.False(gate.CanDecide(snapshot, decision, actuatorBusy: false));
+    }
+
+    [Fact]
+    public void CanDecide_WhenPendingMessages_AllowsMulliganPrompt()
+    {
+        var gate = new DecisionGate();
+        var snapshot = CreateSnapshot(pendingMessageCount: 2);
+        var decision = CreateDecision(DecisionKind.Mulligan, [new LegalAction("Prompt", null, 1, null)]);
+
+        Assert.True(gate.CanDecide(snapshot, decision, actuatorBusy: false));
     }
 
     [Fact]
@@ -20,7 +30,7 @@ public class DecisionGateTests
     {
         var gate = new DecisionGate();
         var snapshot = CreateSnapshot(pendingMessageCount: 0);
-        var decision = CreateDecision();
+        var decision = CreateDecision(DecisionKind.MainPhase);
 
         Assert.True(gate.CanDecide(snapshot, decision, actuatorBusy: false));
     }
@@ -30,7 +40,7 @@ public class DecisionGateTests
     {
         var gate = new DecisionGate();
         var snapshot = CreateSnapshot(pendingMessageCount: 0);
-        var decision = CreateDecision();
+        var decision = CreateDecision(DecisionKind.MainPhase);
 
         Assert.False(gate.CanDecide(snapshot, decision, actuatorBusy: true));
     }
@@ -48,11 +58,13 @@ public class DecisionGateTests
             Mana: ManaPool.Empty,
             PendingMessageCount: pendingMessageCount);
 
-    private static DecisionPoint CreateDecision() =>
+    private static DecisionPoint CreateDecision(
+        DecisionKind kind,
+        IReadOnlyList<LegalAction>? legalActions = null) =>
         new(
             DecisionId: 1,
-            Kind: DecisionKind.MainPhase,
+            Kind: kind,
             SystemSeatId: 1,
-            LegalActions: [new LegalAction("ActionType_Cast", 101, 1, null)],
+            LegalActions: legalActions ?? [new LegalAction("ActionType_Cast", 101, 1, null)],
             Prompt: null);
 }
