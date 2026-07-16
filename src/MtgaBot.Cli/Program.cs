@@ -1,4 +1,20 @@
-﻿using MtgaBot.Host.Shadow;
+﻿using MtgaBot.Actuate;
+using MtgaBot.Host.Actuate;
+using MtgaBot.Host.Shadow;
+
+const string ActuateUsage =
+    """
+    Usage: MtgaBot.Cli actuate dry-run --intent <name> [--instance <id>] [--calibration <path>]
+
+      Plans UiAction sequence without moving the mouse (1920×1080 design space).
+
+      Intents: pass, resolve, attack, keep, mulligan, noblocks, group, cast, target
+
+      Examples:
+        MtgaBot.Cli actuate dry-run --intent pass
+        MtgaBot.Cli actuate dry-run --intent keep
+        MtgaBot.Cli actuate dry-run --intent cast --instance 160
+    """;
 
 if (args.Length == 0)
 {
@@ -10,6 +26,8 @@ switch (args[0])
 {
     case "shadow":
         return await RunShadowAsync(args[1..]);
+    case "actuate":
+        return await RunActuateAsync(args[1..]);
     case "--help" or "-h" or "help":
         PrintRootHelp();
         return 0;
@@ -64,9 +82,95 @@ static async Task<int> RunShadowAsync(string[] shadowArgs)
     }
 }
 
+static async Task<int> RunActuateAsync(string[] actuateArgs)
+{
+    if (actuateArgs.Length == 0 || actuateArgs[0] is "--help" or "-h")
+    {
+        Console.WriteLine(ActuateUsage);
+        return actuateArgs.Length == 0 ? 1 : 0;
+    }
+
+    if (!string.Equals(actuateArgs[0], "dry-run", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine($"Unknown actuate subcommand: {actuateArgs[0]}");
+        Console.WriteLine(ActuateUsage);
+        return 1;
+    }
+
+    string? intentName = null;
+    int? instanceId = null;
+    string? calibration = null;
+
+    for (var i = 1; i < actuateArgs.Length; i++)
+    {
+        switch (actuateArgs[i])
+        {
+            case "--intent":
+                if (i + 1 >= actuateArgs.Length)
+                {
+                    Console.Error.WriteLine("Missing value for --intent.");
+                    return 1;
+                }
+
+                intentName = actuateArgs[++i];
+                break;
+            case "--instance":
+                if (i + 1 >= actuateArgs.Length || !int.TryParse(actuateArgs[++i], out var id))
+                {
+                    Console.Error.WriteLine("Missing/invalid value for --instance.");
+                    return 1;
+                }
+
+                instanceId = id;
+                break;
+            case "--calibration":
+                if (i + 1 >= actuateArgs.Length)
+                {
+                    Console.Error.WriteLine("Missing value for --calibration.");
+                    return 1;
+                }
+
+                calibration = actuateArgs[++i];
+                break;
+            default:
+                Console.Error.WriteLine($"Unknown argument: {actuateArgs[i]}");
+                Console.WriteLine(ActuateUsage);
+                return 1;
+        }
+    }
+
+    if (string.IsNullOrWhiteSpace(intentName))
+    {
+        Console.Error.WriteLine("Required: --intent <name>");
+        Console.WriteLine(ActuateUsage);
+        return 1;
+    }
+
+    try
+    {
+        var intent = ActuateDryRun.ParseIntent(intentName, instanceId);
+        var result = await ActuateDryRun.PlanAsync(intent, calibration);
+        Console.WriteLine($"intent: {result.IntentName}  success={result.Success}");
+        if (result.Error is not null)
+        {
+            Console.WriteLine($"error: {result.Error}");
+        }
+
+        Console.WriteLine($"actions ({result.Actions.Count}): {UiActionFormatter.FormatAll(result.Actions)}");
+        return result.Success ? 0 : 2;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 1;
+    }
+}
+
 static void PrintRootHelp()
 {
     Console.WriteLine($"MtgaBot CLI ({MtgaBot.Host.MtgaBotHost.Version})");
     Console.WriteLine();
     Console.WriteLine(ShadowArgs.Usage);
+    Console.WriteLine();
+    Console.WriteLine(ActuateUsage);
 }
