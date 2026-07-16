@@ -6,7 +6,7 @@ namespace MtgaBot.Host.Shadow;
 
 public interface IShadowReporter
 {
-    void OnStarted(ShadowOptions options);
+    void OnStarted(ShadowOptions options, CardDatabaseResolver.ResolveResult cards);
 
     void OnDecision(GameView view, Intent intent);
 
@@ -23,12 +23,25 @@ public sealed class ShadowConsoleReporter(TextWriter? output = null) : IShadowRe
 {
     private readonly TextWriter _output = output ?? Console.Out;
 
-    public void OnStarted(ShadowOptions options)
+    public void OnStarted(ShadowOptions options, CardDatabaseResolver.ResolveResult cards)
     {
         _output.WriteLine(
             $"MtgaBot shadow ({MtgaBotHost.Version}) — Ingest+State+Decide, no clicks");
         _output.WriteLine(
             $"log: {options.LogPath}  mode: {(options.Follow ? "follow" : "replay")}  policy: {options.PolicyName}");
+        if (cards.CardsPath is null)
+        {
+            _output.WriteLine("cards: (none — FarmMvp will skip creature casts)");
+        }
+        else
+        {
+            _output.WriteLine($"cards: {cards.Count} from {cards.CardsPath}");
+            if (cards.OverlayPath is not null)
+            {
+                _output.WriteLine($"cards overlay: {cards.OverlayPath}");
+            }
+        }
+
         _output.WriteLine();
     }
 

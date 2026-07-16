@@ -13,11 +13,17 @@ public sealed class CapturingShadowReporter : IShadowReporter
 
     public ShadowOptions? StartedWith { get; private set; }
 
+    public CardDatabaseResolver.ResolveResult? StartedCards { get; private set; }
+
     public ShadowRunResult? CompletedWith { get; private set; }
 
     public List<string> Errors { get; } = [];
 
-    public void OnStarted(ShadowOptions options) => StartedWith = options;
+    public void OnStarted(ShadowOptions options, CardDatabaseResolver.ResolveResult cards)
+    {
+        StartedWith = options;
+        StartedCards = cards;
+    }
 
     public void OnDecision(GameView view, Intent intent)
     {
@@ -122,6 +128,16 @@ public class ShadowArgsTests
         var options = ShadowArgs.Parse(["--log", @"C:\tmp\Player.log", "--policy", "Pass"]);
 
         Assert.Equal("Pass", options.PolicyName);
+    }
+
+    [Fact]
+    public void Parse_CardsPath()
+    {
+        var options = ShadowArgs.Parse(
+            ["--log", @"C:\tmp\Player.log", "--cards", @"D:\data\cards.json", "--cards-overlay", @"D:\data\starter.json"]);
+
+        Assert.Equal(@"D:\data\cards.json", options.CardsPath);
+        Assert.Equal(@"D:\data\starter.json", options.CardsOverlayPath);
     }
 
     [Fact]

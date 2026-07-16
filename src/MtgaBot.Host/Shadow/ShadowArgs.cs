@@ -11,6 +11,8 @@ public static class ShadowArgs
         string? logPath = null;
         var follow = false;
         string? policyName = null;
+        string? cardsPath = null;
+        string? cardsOverlayPath = null;
 
         for (var i = 0; i < args.Count; i++)
         {
@@ -36,6 +38,22 @@ public static class ShadowArgs
 
                     policyName = args[++i];
                     break;
+                case "--cards":
+                    if (i + 1 >= args.Count)
+                    {
+                        throw new ArgumentException("Missing value for --cards.");
+                    }
+
+                    cardsPath = args[++i];
+                    break;
+                case "--cards-overlay":
+                    if (i + 1 >= args.Count)
+                    {
+                        throw new ArgumentException("Missing value for --cards-overlay.");
+                    }
+
+                    cardsOverlayPath = args[++i];
+                    break;
                 case "--help":
                 case "-h":
                     throw new ArgumentException(Usage);
@@ -45,23 +63,30 @@ public static class ShadowArgs
         }
 
         logPath ??= locator.GetDefaultPlayerLogPath();
-        return new ShadowOptions(logPath, follow, policyName ?? "FarmMvp");
+        return new ShadowOptions(
+            logPath,
+            follow,
+            policyName ?? "FarmMvp",
+            cardsPath,
+            cardsOverlayPath);
     }
 
     public const string Usage =
         """
-        Usage: MtgaBot.Cli shadow [--log <path>] [--follow] [--policy FarmMvp|Pass]
+        Usage: MtgaBot.Cli shadow [--log <path>] [--follow] [--policy FarmMvp|Pass] [--cards <path>]
 
-          --log <path>     Player.log path (default: MTGA LocalLow path)
-          --follow         Tail live from end of file (no clicks)
-          --policy <name>  Decision policy (default: FarmMvp)
-          --help           Show this help
+          --log <path>            Player.log path (default: MTGA LocalLow path)
+          --follow                Tail live from end of file (no clicks)
+          --policy <name>         Decision policy (default: FarmMvp)
+          --cards <path>          cards.json (default: data/cards.json if present)
+          --cards-overlay <path>  Optional overlay (default: data/starter_deck_cards.json)
+          --help                  Show this help
 
         Replay (Ingest + State + Decide, print DecisionReady + Intent):
           MtgaBot.Cli shadow --log path\to\Player.log --policy FarmMvp
 
         Live tail during a manual match:
           MtgaBot.Cli shadow --follow
-          MtgaBot.Cli shadow --follow --policy Pass
+          MtgaBot.Cli shadow --follow --policy Pass --cards data\cards.json
         """;
 }
