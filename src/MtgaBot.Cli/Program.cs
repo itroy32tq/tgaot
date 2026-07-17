@@ -4,16 +4,22 @@ using MtgaBot.Host.Shadow;
 
 const string ActuateUsage =
     """
-    Usage: MtgaBot.Cli actuate dry-run --intent <name> [--instance <id>] [--calibration <path>]
+    Usage:
+      MtgaBot.Cli actuate dry-run --intent <name> [--instance <id>] [--calibration <path>]
+      MtgaBot.Cli actuate live [options]
+      MtgaBot.Cli actuate mouse-probe
 
-      Plans UiAction sequence without moving the mouse (1920×1080 design space).
+      dry-run      Plans UiAction sequence without moving the mouse.
+      live         Follow Player.log and execute Intents in MTGA (phase 3 in-game).
+      mouse-probe  Move cursor +40,+20 and verify Win32 input works.
 
       Intents: pass, resolve, attack, keep, mulligan, noblocks, group, cast, target
 
       Examples:
+        MtgaBot.Cli actuate mouse-probe
         MtgaBot.Cli actuate dry-run --intent pass
-        MtgaBot.Cli actuate dry-run --intent keep
-        MtgaBot.Cli actuate dry-run --intent cast --instance 160
+        MtgaBot.Cli actuate live --dry-run
+        MtgaBot.Cli actuate live
     """;
 
 if (args.Length == 0)
@@ -87,7 +93,19 @@ static async Task<int> RunActuateAsync(string[] actuateArgs)
     if (actuateArgs.Length == 0 || actuateArgs[0] is "--help" or "-h")
     {
         Console.WriteLine(ActuateUsage);
+        Console.WriteLine();
+        Console.WriteLine(LiveExecuteArgs.Usage);
         return actuateArgs.Length == 0 ? 1 : 0;
+    }
+
+    if (string.Equals(actuateArgs[0], "live", StringComparison.OrdinalIgnoreCase))
+    {
+        return await RunActuateLiveAsync(actuateArgs[1..]);
+    }
+
+    if (string.Equals(actuateArgs[0], "mouse-probe", StringComparison.OrdinalIgnoreCase))
+    {
+        return await MouseProbe.RunAsync(Console.Out);
     }
 
     if (!string.Equals(actuateArgs[0], "dry-run", StringComparison.OrdinalIgnoreCase))
@@ -162,6 +180,51 @@ static async Task<int> RunActuateAsync(string[] actuateArgs)
     catch (Exception ex)
     {
         Console.Error.WriteLine(ex.Message);
+        return 1;
+    }
+}
+
+static async Task<int> RunActuateLiveAsync(string[] liveArgs)
+{
+    LiveExecuteOptions options;
+    try
+    {
+        options = LiveExecuteArgs.Parse(liveArgs);
+    }
+    catch (ArgumentException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 1;
+    }
+
+    using var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        cts.Cancel();
+    };
+
+    var reporter = new LiveExecuteConsoleReporter();
+    var runner = new LiveExecuteRunner(reporter, options);
+
+    try
+    {
+        await runner.RunAsync(options, cts.Token);
+        return 0;
+    }
+    catch (OperationCanceledException)
+    {
+        Console.WriteLine();
+        Console.WriteLine("stopped.");
+        return 0;
+    }
+    catch (FileNotFoundException)
+    {
+        return 1;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"actuate live failed: {ex.Message}");
         return 1;
     }
 }
