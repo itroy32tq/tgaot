@@ -13,6 +13,39 @@ public class FarmMvpPolicyTests
     ]);
 
     [Fact]
+    public void MainPhase_OnBeginning_PassesInsteadOfCasting()
+    {
+        var policy = new FarmMvpPolicy();
+        var view = new GameView(
+            new GameSnapshot(
+                1,
+                new TurnInfo("Phase_Beginning", "Step_Upkeep", 1, 1, 1, 1),
+                new Dictionary<int, CardView>
+                {
+                    [11] = new(11, 1001, 1, "ZoneType_Hand", 1, false),
+                },
+                [11],
+                [],
+                [],
+                20,
+                20,
+                ManaPool.Empty,
+                0),
+            new DecisionPoint(
+                1,
+                DecisionKind.MainPhase,
+                1,
+                [
+                    new LegalAction("ActionType_Cast", 11, 1, null),
+                    new LegalAction("ActionType_Play", 10, 1, null),
+                ],
+                null),
+            MatchPhase.InMatch);
+
+        Assert.IsType<PassPriorityIntent>(policy.Decide(view, Cards));
+    }
+
+    [Fact]
     public void MainPhase_PlaysLandOncePerTurn()
     {
         var policy = new FarmMvpPolicy();

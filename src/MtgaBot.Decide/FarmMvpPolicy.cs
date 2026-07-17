@@ -28,7 +28,8 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null) : IPolicy
             DecisionKind.Blockers => new DeclareNoBlocksIntent(),
             DecisionKind.GroupReq => new AcknowledgeGroupIntent(),
             DecisionKind.SelectTargets => DecideSelectTarget(view),
-            DecisionKind.MainPhase => DecideMainPhase(view, cards),
+            DecisionKind.MainPhase when IsMainPhase(view.Board.Turn) => DecideMainPhase(view, cards),
+            DecisionKind.MainPhase => new PassPriorityIntent(),
             DecisionKind.PayCosts => new PassPriorityIntent(),
             DecisionKind.CastingTimeOptions => new PassPriorityIntent(),
             DecisionKind.AssignDamage => new PassPriorityIntent(),
@@ -36,6 +37,9 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null) : IPolicy
             _ => new PassPriorityIntent(),
         };
     }
+
+    private static bool IsMainPhase(TurnInfo turn) =>
+        turn.Phase is "Phase_Main1" or "Phase_Main2";
 
     private Intent DecideMainPhase(GameView view, ICardDatabase cards)
     {

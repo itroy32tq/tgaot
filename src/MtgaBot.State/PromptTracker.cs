@@ -154,8 +154,7 @@ internal sealed class PromptTracker
 
     private static bool IsPlayablePriorityWindow(TurnInfo turn) =>
         turn.TurnNumber > 0
-        && !string.IsNullOrEmpty(turn.Phase)
-        && turn.Phase is not "Phase_Unknown";
+        && turn.Phase is "Phase_Main1" or "Phase_Main2";
 
     private static IReadOnlyList<LegalAction> ParseFlatActions(JsonElement actionsElement, int seatId)
     {
