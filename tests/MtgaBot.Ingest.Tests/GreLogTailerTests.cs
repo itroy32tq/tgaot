@@ -8,6 +8,30 @@ public class GreLogTailerTests
         Path.Combine(AppContext.BaseDirectory, "fixtures", name);
 
     [Fact]
+    public void ParseRecent_ReturnsEventsAndResumeOffset()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mtgabot-recent-{Guid.NewGuid():N}.log");
+        var prefix = new string('x', 100) + "\n";
+        var gre =
+            """{"greToClientEvent":{"greToClientMessages":[{"type":"GREMessageType_MulliganReq","systemSeatIds":[1]}]}}"""
+            + "\n";
+        File.WriteAllText(path, prefix + gre);
+
+        try
+        {
+            var tailer = new GreLogTailer();
+            var recent = tailer.ParseRecent(path, maxBytes: 10_000);
+
+            Assert.True(recent.ResumeOffset > 0);
+            Assert.Contains(recent.Events, e => e.Message.Type == "GREMessageType_MulliganReq");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void ParseFile_WhenMissing_ThrowsFileNotFound()
     {
         var tailer = new GreLogTailer();
