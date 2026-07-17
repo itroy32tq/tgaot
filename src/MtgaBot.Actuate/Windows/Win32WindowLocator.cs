@@ -7,12 +7,36 @@ public sealed class Win32WindowLocator : IWindowLocator
 {
     public WindowRect? FindMtgaClientRect()
     {
+        var hwnd = FindMtgaHwnd();
+        return hwnd == IntPtr.Zero ? null : TryGetClientScreenRect(hwnd, out var rect) ? rect : null;
+    }
+
+    /// <summary>Bring MTGA to foreground before SendInput clicks.</summary>
+    public bool TryFocusMtga()
+    {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            return null;
+            return false;
         }
 
-        WindowRect? found = null;
+        var hwnd = FindMtgaHwnd();
+        if (hwnd == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        ShowWindow(hwnd, SW_RESTORE);
+        return SetForegroundWindow(hwnd);
+    }
+
+    private static IntPtr FindMtgaHwnd()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return IntPtr.Zero;
+        }
+
+        var found = IntPtr.Zero;
         EnumWindows((hWnd, _) =>
         {
             if (!IsWindowVisible(hWnd))
@@ -31,7 +55,7 @@ public sealed class Win32WindowLocator : IWindowLocator
                 return true;
             }
 
-            found = rect;
+            found = hWnd;
             return false;
         }, IntPtr.Zero);
 
@@ -100,6 +124,14 @@ public sealed class Win32WindowLocator : IWindowLocator
 
     [DllImport("user32.dll")]
     private static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private const int SW_RESTORE = 9;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT
