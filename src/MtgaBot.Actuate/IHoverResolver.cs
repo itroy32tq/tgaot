@@ -15,10 +15,12 @@ public sealed class HoverResolver(
     IInputBackend input,
     IHoverObjectIdSource hoverSource,
     TimeSpan? perPointTimeout = null,
-    TimeSpan? moveDelay = null) : IHoverResolver
+    TimeSpan? moveDelay = null,
+    TimeSpan? resetDelay = null) : IHoverResolver
 {
     private readonly TimeSpan _perPointTimeout = perPointTimeout ?? TimeSpan.FromMilliseconds(40);
     private readonly TimeSpan _moveDelay = moveDelay ?? TimeSpan.FromMilliseconds(10);
+    private readonly TimeSpan _resetDelay = resetDelay ?? TimeSpan.FromMilliseconds(300);
 
     public async Task<bool> ClickHandCardAsync(int instanceId, CancellationToken ct)
     {
@@ -28,6 +30,13 @@ public sealed class HoverResolver(
         var p2 = profile.HandScanP2;
         var dx = p2.X - p1.X;
         var steps = Math.Max(1, Math.Abs(dx) / step);
+
+        // Clear sticky hover before scanning the hand arc (Lotus RESET_BEFORE_HAND_SELECT).
+        var resetY = Math.Max(0, p1.Y - 100);
+        var (rx, ry) = map.ToScreen(new DesignPoint(p1.X, resetY));
+        await input.ExecuteAsync(new MoveMouseAction(rx, ry), ct).ConfigureAwait(false);
+        await input.ExecuteAsync(new DelayAction(_resetDelay), ct).ConfigureAwait(false);
+        hoverSource.Reset();
 
         for (var i = 0; i <= steps; i++)
         {

@@ -9,7 +9,10 @@ public sealed class IntentExecutor(
     IHoverObjectIdSource hoverSource,
     ActuatorBusy? busy = null,
     TimeSpan? hoverPointTimeout = null,
-    TimeSpan? hoverMoveDelay = null)
+    TimeSpan? hoverMoveDelay = null,
+    TimeSpan? hoverResetDelay = null,
+    TimeSpan? hoverRetryPause = null,
+    int hoverAttempts = 3)
     : IIntentExecutor
 {
     private static readonly TimeSpan ClickGap = TimeSpan.FromMilliseconds(600);
@@ -17,6 +20,9 @@ public sealed class IntentExecutor(
 
     private readonly TimeSpan _hoverPointTimeout = hoverPointTimeout ?? TimeSpan.FromMilliseconds(40);
     private readonly TimeSpan _hoverMoveDelay = hoverMoveDelay ?? TimeSpan.FromMilliseconds(10);
+    private readonly TimeSpan _hoverResetDelay = hoverResetDelay ?? TimeSpan.FromMilliseconds(300);
+    private readonly TimeSpan _hoverRetryPause = hoverRetryPause ?? TimeSpan.FromMilliseconds(800);
+    private readonly int _hoverAttempts = Math.Max(1, hoverAttempts);
 
     public async Task<ActuateResult> ExecuteAsync(Intent intent, CancellationToken ct)
     {
@@ -29,7 +35,8 @@ public sealed class IntentExecutor(
             recorder,
             hoverSource,
             _hoverPointTimeout,
-            _hoverMoveDelay);
+            _hoverMoveDelay,
+            _hoverResetDelay);
 
         using var _ = busy?.Enter();
 
@@ -53,11 +60,11 @@ public sealed class IntentExecutor(
                 SelectTargetIntent target when target.InstanceId < 0 =>
                     await ClickButtonAsync(recorder, profile.OpponentAvatar, ct).ConfigureAwait(false),
                 CastIntent cast =>
-                    await hover.ClickHandCardAsync(cast.InstanceId, ct).ConfigureAwait(false),
+                    await ClickHandWithRetryAsync(hover, recorder, cast.InstanceId, ct).ConfigureAwait(false),
                 AttackWithIntent attack =>
-                    await hover.ClickHandCardAsync(attack.InstanceId, ct).ConfigureAwait(false),
+                    await ClickHandWithRetryAsync(hover, recorder, attack.InstanceId, ct).ConfigureAwait(false),
                 SelectTargetIntent select =>
-                    await hover.ClickHandCardAsync(select.InstanceId, ct).ConfigureAwait(false),
+                    await ClickHandWithRetryAsync(hover, recorder, select.InstanceId, ct).ConfigureAwait(false),
                 NoOpIntent => true,
                 _ => false,
             };
@@ -71,6 +78,28 @@ public sealed class IntentExecutor(
         {
             return new ActuateResult(false, name, recorder.Actions.ToList(), ex.Message);
         }
+    }
+
+    private async Task<bool> ClickHandWithRetryAsync(
+        IHoverResolver hover,
+        IInputBackend backend,
+        int instanceId,
+        CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < _hoverAttempts; attempt++)
+        {
+            if (await hover.ClickHandCardAsync(instanceId, ct).ConfigureAwait(false))
+            {
+                return true;
+            }
+
+            if (attempt + 1 < _hoverAttempts)
+            {
+                await backend.ExecuteAsync(new DelayAction(_hoverRetryPause), ct).ConfigureAwait(false);
+            }
+        }
+
+        return false;
     }
 
     private async Task<bool> NoBlocksAsync(IInputBackend backend, CancellationToken ct)

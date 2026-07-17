@@ -4,20 +4,55 @@ namespace MtgaBot.Actuate;
 
 public static class CalibrationLoader
 {
+    public const string DefaultRelativePath = "data/calibration.defaults.json";
+
     /// <summary>
     /// Loads calibration from Lotus-style JSON (<c>click_targets</c>) or our compact schema.
     /// Missing file / keys fall back to <see cref="CalibrationProfile.CreateDefault"/>.
+    /// When <paramref name="path"/> is null, searches <see cref="DefaultRelativePath"/>.
     /// </summary>
-    public static CalibrationProfile Load(string? path)
+    public static CalibrationProfile Load(string? path = null)
     {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        var resolved = ResolvePath(path);
+        if (resolved is null)
         {
             return CalibrationProfile.CreateDefault();
         }
 
-        using var stream = File.OpenRead(path);
+        using var stream = File.OpenRead(resolved);
         using var doc = JsonDocument.Parse(stream);
         return Parse(doc.RootElement);
+    }
+
+    /// <summary>Resolved calibration file path, or null if using in-code defaults.</summary>
+    public static string? ResolvePath(string? explicitPath = null)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            var full = Path.GetFullPath(explicitPath);
+            return File.Exists(full) ? full : null;
+        }
+
+        foreach (var candidate in EnumerateDefaultCandidates(DefaultRelativePath))
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> EnumerateDefaultCandidates(string relative)
+    {
+        yield return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), relative));
+
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var i = 0; i < 8 && dir is not null; i++, dir = dir.Parent)
+        {
+            yield return Path.GetFullPath(Path.Combine(dir.FullName, relative));
+        }
     }
 
     public static CalibrationProfile Parse(JsonElement root)

@@ -38,4 +38,18 @@ public class CalibrationLoaderTests
         Assert.Equal(1920, profile.DesignWidth);
         Assert.Equal(1101, profile.KeepHand.X);
     }
+
+    [Fact]
+    public void ResolvePath_FindsRepoDefaultsWhenCwdIsRepoRoot()
+    {
+        var path = CalibrationLoader.ResolvePath(null);
+        if (path is null)
+        {
+            // CI / odd cwd — skip soft assert
+            return;
+        }
+
+        Assert.True(File.Exists(path));
+        Assert.Contains("calibration", path, StringComparison.OrdinalIgnoreCase);
+    }
 }

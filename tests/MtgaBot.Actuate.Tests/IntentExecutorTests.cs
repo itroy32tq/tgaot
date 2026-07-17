@@ -14,7 +14,9 @@ public class IntentExecutorTests
             new RecordingInputBackend(),
             hover ?? new ImmediateHoverObjectIdSource(),
             hoverPointTimeout: TimeSpan.FromMilliseconds(1),
-            hoverMoveDelay: TimeSpan.Zero);
+            hoverMoveDelay: TimeSpan.Zero,
+            hoverResetDelay: TimeSpan.Zero,
+            hoverRetryPause: TimeSpan.Zero);
     }
 
     [Fact]
@@ -68,6 +70,18 @@ public class IntentExecutorTests
 
         Assert.False(result.Success);
         Assert.DoesNotContain(result.Actions, a => a is DoubleClickAction);
+    }
+
+    [Fact]
+    public async Task Cast_HoverMiss_RetriesThreeScans()
+    {
+        var executor = CreateExecutor(new NeverHoverObjectIdSource());
+        var result = await executor.ExecuteAsync(new CastIntent(42), CancellationToken.None);
+
+        Assert.False(result.Success);
+        // 3 scan attempts × (reset move + hand arc moves); at least 3 reset moves near y=950.
+        var resets = result.Actions.OfType<MoveMouseAction>().Count(m => m.ScreenY == 950);
+        Assert.True(resets >= 3, $"expected ≥3 reset moves, got {resets}");
     }
 
     [Fact]
