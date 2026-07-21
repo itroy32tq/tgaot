@@ -73,6 +73,110 @@ public class FarmMvpPolicyTests
     }
 
     [Fact]
+    public void MainPhase_AfterMulliganTurnRewind_PlaysLandAgain()
+    {
+        var policy = new FarmMvpPolicy(mode: FarmMvpMode.LandOnly);
+        var firstMain = MainView(
+            turn: 1,
+            actions:
+            [
+                new LegalAction("ActionType_Play", 10, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [10] = new(10, 1004, 1, "ZoneType_Hand", 1, false),
+            });
+
+        Assert.Equal(new PlayLandIntent(10), policy.Decide(firstMain, Cards));
+
+        var mulligan = new GameView(
+            new GameSnapshot(
+                1,
+                new TurnInfo("Phase_Unknown", "Step_Unknown", 0, 1, 1, 1),
+                new Dictionary<int, CardView>(),
+                [],
+                [],
+                [],
+                20,
+                20,
+                ManaPool.Empty,
+                0),
+            new DecisionPoint(2, DecisionKind.Mulligan, 1, [new LegalAction("Prompt", null, 1, null)], null),
+            MatchPhase.InMatch);
+        Assert.Equal(new KeepHandIntent(true), policy.Decide(mulligan, Cards));
+
+        var secondMain = MainView(
+            turn: 1,
+            actions:
+            [
+                new LegalAction("ActionType_Play", 10, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [10] = new(10, 1004, 1, "ZoneType_Hand", 1, false),
+            });
+
+        Assert.Equal(new PlayLandIntent(10), policy.Decide(secondMain, Cards));
+    }
+
+    [Fact]
+    public void MainPhase_PlayWithoutInstanceId_SkipsLand()
+    {
+        var policy = new FarmMvpPolicy(mode: FarmMvpMode.LandOnly);
+        var view = MainView(
+            turn: 1,
+            actions:
+            [
+                new LegalAction("ActionType_Play", null, 1, null),
+                new LegalAction("ActionType_Cast", 11, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [11] = new(11, 1001, 1, "ZoneType_Hand", 1, false),
+            });
+
+        var intent = policy.Decide(view, Cards);
+        Assert.IsType<NoOpIntent>(intent);
+        Assert.IsType<PassPriorityIntent>(policy.Decide(view, Cards));
+    }
+
+    [Fact]
+    public void Main2_DoesNotRetryLand_AfterMain1Attempt()
+    {
+        var policy = new FarmMvpPolicy(mode: FarmMvpMode.LandOnly);
+        var main1 = MainView(
+            turn: 1,
+            actions:
+            [
+                new LegalAction("ActionType_Play", 10, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [10] = new(10, 1004, 1, "ZoneType_Hand", 1, false),
+            });
+
+        Assert.Equal(new PlayLandIntent(10), policy.Decide(main1, Cards));
+
+        var main2 = MainView(
+            turn: 1,
+            actions:
+            [
+                new LegalAction("ActionType_Play", 10, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [10] = new(10, 1004, 1, "ZoneType_Hand", 1, false),
+            },
+            phase: "Phase_Main2");
+
+        Assert.IsType<PassPriorityIntent>(policy.Decide(main2, Cards));
+    }
+
+    [Fact]
     public void LandOnly_PlaysLandThenPasses_NoCast_NoAttack()
     {
         var policy = new FarmMvpPolicy(mode: FarmMvpMode.LandOnly);
@@ -219,16 +323,23 @@ public class FarmMvpPolicyTests
         Assert.Equal(new CastIntent(31), policy.Decide(view, cards));
     }
 
-    private static GameView MainView(int turn, IReadOnlyList<LegalAction> actions, IReadOnlyDictionary<int, CardView> objects) =>
+    private static GameView MainView(
+        int turn,
+        IReadOnlyList<LegalAction> actions,
+        IReadOnlyDictionary<int, CardView> objects,
+        string phase = "Phase_Main1") =>
         new(
-            Board(turn, objects),
+            Board(turn, objects, phase),
             new DecisionPoint(42, DecisionKind.MainPhase, 1, actions, null),
             MatchPhase.InMatch);
 
-    private static GameSnapshot Board(int turn, IReadOnlyDictionary<int, CardView>? objects = null) =>
+    private static GameSnapshot Board(
+        int turn,
+        IReadOnlyDictionary<int, CardView>? objects = null,
+        string phase = "Phase_Main1") =>
         new(
             MySeatId: 1,
-            Turn: new TurnInfo("Phase_Main1", "Step_Begin", turn, 1, 1, 1),
+            Turn: new TurnInfo(phase, "Step_Begin", turn, 1, 1, 1),
             Objects: objects ?? new Dictionary<int, CardView>(),
             HandInstanceIds: objects?.Keys.ToList() ?? [],
             BattlefieldInstanceIds: [],

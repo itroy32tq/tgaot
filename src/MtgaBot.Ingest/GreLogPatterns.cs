@@ -18,6 +18,7 @@ public static class GreLogPatterns
     public const string Mulligan = "\"type\": \"GREMessageType_MulliganReq\"";
     public const string ActionsAvailable = "\"type\": \"GREMessageType_ActionsAvailableReq\"";
     public const string ClientSelectTargetsResp = "\"type\": \"ClientMessageType_SelectTargetsResp\"";
+    public const string ClientMulliganResp = "\"type\": \"ClientMessageType_MulliganResp\"";
     public const string ClientSubmitAttackers = "\"type\": \"ClientMessageType_SubmitAttackersReq\"";
     public const string ClientSetSettings = "\"type\": \"ClientMessageType_SetSettingsReq\"";
 
@@ -39,6 +40,7 @@ public static class GreLogPatterns
         Mulligan,
         ActionsAvailable,
         ClientSelectTargetsResp,
+        ClientMulliganResp,
         ClientSubmitAttackers,
         ClientSetSettings,
     ];

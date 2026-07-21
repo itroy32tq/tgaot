@@ -117,6 +117,20 @@ public sealed class StateEngine : IStateEngine
         return new GameView(snapshot, decision, _lifecycle.Phase);
     }
 
+    /// <summary>
+    /// Decision point without ActuatorBusy gate — for GRE ack while clicking.
+    /// </summary>
+    public DecisionPoint? TryGetDecisionPointRaw()
+    {
+        if (_mySeatId is not int seatId)
+        {
+            return null;
+        }
+
+        var snapshot = _snapshotBuilder.Build(_reducer.State, seatId);
+        return _promptTracker.BuildDecisionPoint(_currentDecisionId, snapshot);
+    }
+
     public GameSnapshot? TryGetSnapshot()
     {
         if (_mySeatId is not int seatId)
@@ -125,6 +139,49 @@ public sealed class StateEngine : IStateEngine
         }
 
         return _snapshotBuilder.Build(_reducer.State, seatId);
+    }
+
+    /// <summary>
+    /// UI Keep was clicked — do not Clear Mulligan lock (needed for Main1 sticky unlock).
+    /// </summary>
+    public void AcknowledgeMulliganAnswered()
+    {
+        _promptTracker.MarkMulliganUiAnswered();
+        _lastEmittedDecisionId = 0;
+        _lastEmittedSignature = null;
+        TryPromoteStickyPriority();
+    }
+
+    /// <summary>
+    /// When prompt is empty but reducer still has Play/Cast and turn is Main1/Main2, open a decision.
+    /// </summary>
+    public bool TryPromoteStickyPriority()
+    {
+        if (_mySeatId is not int seatId)
+        {
+            return false;
+        }
+
+        var seatActions = _reducer.State.Actions.Where(action => action.SeatId == seatId).ToList();
+        if (!_promptTracker.TryOpenPlayableFromSticky(_reducer.State.Turn, seatActions, seatId))
+        {
+            return false;
+        }
+
+        _currentDecisionId++;
+        _lastEmittedSignature = null;
+        TryEmitDecision();
+        return true;
+    }
+
+    /// <summary>
+    /// After UI actuate, GRE may have changed the board while ActuatorBusy blocked emit.
+    /// Call with busy cleared so Pass/Cast can continue without waiting for a new log line.
+    /// </summary>
+    public void TryEmitAfterActuate()
+    {
+        TryPromoteStickyPriority();
+        TryEmitDecision();
     }
 
     private void ApplyGameStateMessage(JsonElement message)
@@ -150,14 +207,21 @@ public sealed class StateEngine : IStateEngine
             return;
         }
 
-        // Only sync PromptTracker from GameState when this Diff actually carried actions
-        // (including empty arrays). Omitting the field means "unchanged" in GRE.
+        var seatActions = _reducer.State.Actions.Where(action => action.SeatId == seatId).ToList();
+
+        // Omitting actions means "unchanged" — still open/unlock playable windows from sticky lists.
         if (!actionsPresent && !isFull)
         {
+            if (_promptTracker.TryUnlockMulliganForTurn(_reducer.State.Turn, seatActions, seatId)
+                || _promptTracker.TryOpenPlayableFromSticky(_reducer.State.Turn, seatActions, seatId))
+            {
+                _currentDecisionId++;
+                _lastEmittedSignature = null;
+            }
+
             return;
         }
 
-        var seatActions = _reducer.State.Actions.Where(action => action.SeatId == seatId).ToList();
         _promptTracker.ApplyGameStateActions(seatActions, seatId, _reducer.State.Turn);
     }
 

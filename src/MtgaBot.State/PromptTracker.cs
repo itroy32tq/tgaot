@@ -22,6 +22,7 @@ internal sealed class PromptTracker
     private IReadOnlyList<LegalAction> _legalActions = Array.Empty<LegalAction>();
     private PromptContext? _prompt;
     private bool _promptLocked;
+    private bool _mulliganUiAnswered;
 
     public void Clear()
     {
@@ -30,7 +31,14 @@ internal sealed class PromptTracker
         _legalActions = Array.Empty<LegalAction>();
         _prompt = null;
         _promptLocked = false;
+        _mulliganUiAnswered = false;
     }
+
+    /// <summary>
+    /// Keep was clicked — suppress further Mulligan decisions but keep the lock
+    /// so Main1 Diff without actions can still unlock via sticky Play/Cast.
+    /// </summary>
+    public void MarkMulliganUiAnswered() => _mulliganUiAnswered = true;
 
     public void ApplyGreRequest(string messageType, JsonElement message)
     {
@@ -62,6 +70,64 @@ internal sealed class PromptTracker
         _prompt = null;
     }
 
+    /// <summary>
+    /// After Keep, GRE may advance to Main1/Main2 without re-sending the actions array.
+    /// Unlock Mulligan and surface sticky seat actions so live loop is not stuck.
+    /// </summary>
+    public bool TryUnlockMulliganForTurn(TurnInfo turn, IReadOnlyList<LegalAction> seatActions, int seatId)
+    {
+        if (_kind != DecisionKind.Mulligan || !_promptLocked)
+        {
+            return false;
+        }
+
+        if (!ShouldUnlockLockedPrompt(turn))
+        {
+            return false;
+        }
+
+        _promptLocked = false;
+        _mulliganUiAnswered = false;
+        if (seatActions.Count == 0 || !IsPlayablePriorityWindow(turn))
+        {
+            Clear();
+            return true;
+        }
+
+        ApplyGameStateActions(seatActions, seatId, turn);
+        return _kind != DecisionKind.None;
+    }
+
+    /// <summary>
+    /// After Keep clears Mulligan, Main1 Diff often omits <c>actions</c>.
+    /// Open MainPhase/Combat from sticky reducer actions while prompt is empty.
+    /// </summary>
+    public bool TryOpenPlayableFromSticky(TurnInfo turn, IReadOnlyList<LegalAction> seatActions, int seatId)
+    {
+        if (_promptLocked)
+        {
+            return TryUnlockMulliganForTurn(turn, seatActions, seatId);
+        }
+
+        if (_kind != DecisionKind.None)
+        {
+            return false;
+        }
+
+        if (seatActions.Count == 0)
+        {
+            return false;
+        }
+
+        if (!IsPlayablePriorityWindow(turn) && !IsCombatDeclareWindow(turn))
+        {
+            return false;
+        }
+
+        ApplyGameStateActions(seatActions, seatId, turn);
+        return _kind != DecisionKind.None;
+    }
+
     public void ApplyGameStateActions(IReadOnlyList<LegalAction> actions, int seatId, TurnInfo turn)
     {
         // Do not let sticky GameState Cast/Play lists overwrite DeclareAttackers/etc.
@@ -79,7 +145,8 @@ internal sealed class PromptTracker
 
         // Opening-hand GameState arrives before MulliganReq with turn=0 / Phase_Unknown
         // and a fake Cast/Play list — that is not a real MainPhase decision.
-        if (!IsPlayablePriorityWindow(turn))
+        // Combat declare windows still need to open (Attackers/Blockers).
+        if (!IsPlayablePriorityWindow(turn) && !IsCombatDeclareWindow(turn))
         {
             return;
         }
@@ -109,6 +176,12 @@ internal sealed class PromptTracker
     public DecisionPoint? BuildDecisionPoint(ulong decisionId)
     {
         if (_kind == DecisionKind.None)
+        {
+            return null;
+        }
+
+        // Waiting for Main1 unlock after Keep — do not re-emit KeepHand.
+        if (_kind == DecisionKind.Mulligan && _mulliganUiAnswered)
         {
             return null;
         }
@@ -155,6 +228,11 @@ internal sealed class PromptTracker
     private static bool IsPlayablePriorityWindow(TurnInfo turn) =>
         turn.TurnNumber > 0
         && turn.Phase is "Phase_Main1" or "Phase_Main2";
+
+    private static bool IsCombatDeclareWindow(TurnInfo turn) =>
+        turn.TurnNumber > 0
+        && turn.Phase == "Phase_Combat"
+        && turn.Step is "Step_DeclareAttack" or "Step_DeclareBlock";
 
     private static IReadOnlyList<LegalAction> ParseFlatActions(JsonElement actionsElement, int seatId)
     {

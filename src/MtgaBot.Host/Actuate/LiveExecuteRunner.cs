@@ -56,9 +56,10 @@ public sealed class LiveExecuteRunner
 
         GameView? pending = null;
         var catchUp = true;
+        // Keep latest decision even while actuating (Main1 often arrives during Keep).
         engine.DecisionReady += view =>
         {
-            if (!catchUp && !busy.IsBusy)
+            if (!catchUp)
             {
                 pending = view;
             }
@@ -87,8 +88,10 @@ public sealed class LiveExecuteRunner
         pending = engine.TryGetDecisionView();
         if (pending is not null)
         {
+            var seed = pending;
+            pending = null;
             await ActuatePendingAsync(
-                pending,
+                seed,
                 engine,
                 busy,
                 options,
@@ -96,11 +99,31 @@ public sealed class LiveExecuteRunner
                 locator,
                 hover,
                 ct).ConfigureAwait(false);
-            pending = null;
         }
-        else
+
+        if (engine.TryPromoteStickyPriority())
         {
-            _reporter.OnInfo("catch-up: no open decision — waiting for new GRE (enter match / take action).");
+            _reporter.OnInfo("promoted sticky MainPhase after keep/catch-up");
+        }
+
+        while (pending is not null && !busy.IsBusy && !ct.IsCancellationRequested)
+        {
+            var view = pending;
+            pending = null;
+            await ActuatePendingAsync(
+                view,
+                engine,
+                busy,
+                options,
+                profile,
+                locator,
+                hover,
+                ct).ConfigureAwait(false);
+        }
+
+        if (engine.TryGetDecisionView() is null && pending is null)
+        {
+            _reporter.OnInfo("waiting for GRE (Main1 / your priority)…");
         }
 
         var greChannel = Channel.CreateUnbounded<GreEvent>(new UnboundedChannelOptions
@@ -147,22 +170,20 @@ public sealed class LiveExecuteRunner
                     hover.SetMySeatId(snap.MySeatId);
                 }
 
-                if (pending is null || busy.IsBusy)
+                while (pending is not null && !busy.IsBusy && !ct.IsCancellationRequested)
                 {
-                    continue;
+                    var view = pending;
+                    pending = null;
+                    await ActuatePendingAsync(
+                        view,
+                        engine,
+                        busy,
+                        options,
+                        profile,
+                        locator,
+                        hover,
+                        ct).ConfigureAwait(false);
                 }
-
-                var view = pending;
-                pending = null;
-                await ActuatePendingAsync(
-                    view,
-                    engine,
-                    busy,
-                    options,
-                    profile,
-                    locator,
-                    hover,
-                    ct).ConfigureAwait(false);
             }
         }
         finally
@@ -199,6 +220,12 @@ public sealed class LiveExecuteRunner
                 var current = engine.TryGetDecisionView() ?? view;
                 if (!IntentPreflight.TryAccept(view, intent, current, out var rejectReason))
                 {
+                    if (intent is KeepHandIntent && view.Decision.Kind == DecisionKind.Mulligan)
+                    {
+                        engine.AcknowledgeMulliganAnswered();
+                        rejectReason ??= "stale mulligan after keep";
+                    }
+
                     var stale = ActuateResult.FromKind(
                         ActuateOutcomeKind.StaleIntent,
                         intent.GetType().Name,
@@ -216,6 +243,12 @@ public sealed class LiveExecuteRunner
                     locator,
                     hover,
                     ct).ConfigureAwait(false);
+
+                if (intent is KeepHandIntent && result.Success)
+                {
+                    engine.AcknowledgeMulliganAnswered();
+                }
+
                 _reporter.OnActuate(result);
                 _reporter.OnAttempt(ActuateAttemptLog.From(current, intent, result));
             }
@@ -223,6 +256,7 @@ public sealed class LiveExecuteRunner
         finally
         {
             engine.ActuatorBusy = false;
+            engine.TryEmitAfterActuate();
         }
     }
 

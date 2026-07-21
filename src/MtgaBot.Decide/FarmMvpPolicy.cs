@@ -12,8 +12,8 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mod
 
     private readonly CardPolicy _cardPolicy = cardPolicy ?? new CardPolicy();
     private readonly FarmMvpMode _mode = mode;
-    private int _currentTurnNumber;
-    private bool _landPlayedThisTurn;
+    private int _currentTurnNumber = -1;
+    private bool _landAttemptedThisTurn;
 
     public FarmMvpMode Mode => _mode;
 
@@ -22,7 +22,7 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mod
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(cards);
 
-        SyncTurn(view.Board.Turn.TurnNumber);
+        SyncTurn(view);
 
         return view.Decision.Kind switch
         {
@@ -54,13 +54,12 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mod
             return new PassPriorityIntent();
         }
 
-        if (!_landPlayedThisTurn)
+        if (!_landAttemptedThisTurn)
         {
-            var land = FindFirst(actions, "ActionType_Play");
-            if (land?.InstanceId is { } landId)
+            var landIntent = TryPlayLand(view, actions);
+            if (landIntent is not null)
             {
-                _landPlayedThisTurn = true;
-                return new PlayLandIntent(landId);
+                return landIntent;
             }
         }
 
@@ -76,6 +75,48 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mod
         }
 
         return new PassPriorityIntent();
+    }
+
+    private Intent? TryPlayLand(GameView view, IReadOnlyList<LegalAction> actions)
+    {
+        if (view.Decision.SystemSeatId != 0
+            && view.Board.MySeatId != 0
+            && view.Decision.SystemSeatId != view.Board.MySeatId)
+        {
+            return null;
+        }
+
+        LegalAction? playWithoutId = null;
+        foreach (var action in actions)
+        {
+            if (!IsActionType(action.ActionType, "ActionType_Play"))
+            {
+                continue;
+            }
+
+            if (action.InstanceId is not { } landId)
+            {
+                playWithoutId = action;
+                continue;
+            }
+
+            if (!view.Board.HandInstanceIds.Contains(landId))
+            {
+                continue;
+            }
+
+            _landAttemptedThisTurn = true;
+            return new PlayLandIntent(landId);
+        }
+
+        if (playWithoutId is not null)
+        {
+            // Cannot aim without instanceId — skip land for this turn (do not fall through to Cast as "land").
+            _landAttemptedThisTurn = true;
+            return new NoOpIntent("Play without instanceId — skipped land");
+        }
+
+        return null;
     }
 
     private CastIntent? PickSafeCast(GameView view, ICardDatabase cards)
@@ -126,15 +167,26 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mod
             new SelectTargetIntent(-1);
     }
 
-    private void SyncTurn(int turnNumber)
+    private void SyncTurn(GameView view)
     {
-        if (turnNumber <= _currentTurnNumber) return;
-        _currentTurnNumber = turnNumber;
-        _landPlayedThisTurn = false;
-    }
+        var turnNumber = view.Board.Turn.TurnNumber;
 
-    private static LegalAction? FindFirst(IReadOnlyList<LegalAction> actions, string actionType) =>
-        actions.FirstOrDefault(action => IsActionType(action.ActionType, actionType));
+        // New match / mulligan / turn rewind must clear land-once state.
+        if (view.Decision.Kind == DecisionKind.Mulligan
+            || turnNumber < _currentTurnNumber
+            || _currentTurnNumber < 0)
+        {
+            _currentTurnNumber = turnNumber;
+            _landAttemptedThisTurn = false;
+            return;
+        }
+
+        if (turnNumber > _currentTurnNumber)
+        {
+            _currentTurnNumber = turnNumber;
+            _landAttemptedThisTurn = false;
+        }
+    }
 
     private static bool IsActionType(string actual, string expected) =>
         string.Equals(actual, expected, StringComparison.Ordinal)
