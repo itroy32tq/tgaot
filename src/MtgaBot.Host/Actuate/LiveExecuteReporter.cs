@@ -13,19 +13,28 @@ public interface ILiveExecuteReporter
         string? calibrationPath);
     void OnDecision(GameView view, Intent intent);
     void OnActuate(ActuateResult result);
+    void OnAttempt(ActuateAttemptLog attempt);
     void OnError(string message);
     void OnInfo(string message);
 }
 
 public sealed class LiveExecuteConsoleReporter : ILiveExecuteReporter
 {
+    private readonly string? _attemptLogPath;
+
+    public LiveExecuteConsoleReporter(string? attemptLogPath = null)
+    {
+        _attemptLogPath = attemptLogPath;
+    }
+
     public void OnStarted(
         LiveExecuteOptions options,
         CardDatabaseResolver.ResolveResult cards,
         WindowRect? window,
         string? calibrationPath)
     {
-        Console.WriteLine($"actuate live  dry-run={options.DryRun}  policy={options.PolicyName}");
+        Console.WriteLine(
+            $"actuate live  dry-run={options.DryRun}  policy={options.PolicyName}  mode={options.Mode}");
         Console.WriteLine($"log: {options.LogPath}");
         Console.WriteLine(
             cards.Count > 0
@@ -35,6 +44,11 @@ public sealed class LiveExecuteConsoleReporter : ILiveExecuteReporter
             calibrationPath is not null
                 ? $"calibration: {calibrationPath}"
                 : "calibration: in-code defaults (1920×1080)");
+        if (options.AttemptLogPath is not null)
+        {
+            Console.WriteLine($"attempt-log: {options.AttemptLogPath}");
+        }
+
         if (window is { } rect)
         {
             Console.WriteLine($"window: {rect.Width}x{rect.Height} @ ({rect.Left},{rect.Top})");
@@ -86,7 +100,8 @@ public sealed class LiveExecuteConsoleReporter : ILiveExecuteReporter
     public void OnActuate(ActuateResult result)
     {
         var status = result.Success ? "ok" : "FAIL";
-        Console.WriteLine($"  actuate {status}: {result.IntentName} ({result.Actions.Count} actions)");
+        Console.WriteLine(
+            $"  actuate {status}: {result.IntentName} kind={result.Kind} ({result.Actions.Count} actions, {result.ElapsedMs} ms)");
         if (result.Error is not null)
         {
             Console.WriteLine($"  error: {result.Error}");
@@ -98,6 +113,33 @@ public sealed class LiveExecuteConsoleReporter : ILiveExecuteReporter
         }
 
         Console.WriteLine();
+    }
+
+    public void OnAttempt(ActuateAttemptLog attempt)
+    {
+        Console.WriteLine(
+            $"  attempt: turn={attempt.TurnNumber} {attempt.Phase}/{attempt.Step} {attempt.Intent} → {attempt.Outcome} ({attempt.ElapsedMs} ms)");
+
+        var path = _attemptLogPath;
+        if (path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.AppendAllText(path, attempt.ToJsonLine() + Environment.NewLine);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"attempt-log write failed: {ex.Message}");
+        }
     }
 
     public void OnError(string message) => Console.Error.WriteLine(message);

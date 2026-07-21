@@ -35,10 +35,12 @@ public static class ActuateDryRun
             "group" or "acknowledge" or "acknowledgegroupintent" => new AcknowledgeGroupIntent(),
             "cast" or "castintent" => new CastIntent(
                 instanceId ?? throw new ArgumentException("Cast requires --instance <id>.")),
+            "play" or "playland" or "playlandintent" => new PlayLandIntent(
+                instanceId ?? throw new ArgumentException("PlayLand requires --instance <id>.")),
             "target" or "selecttarget" or "selecttargetintent" => new SelectTargetIntent(
                 instanceId ?? throw new ArgumentException("SelectTarget requires --instance <id>.")),
             _ => throw new ArgumentException(
-                $"Unknown intent '{name}'. Try: pass, attack, keep, mulligan, noblocks, cast, target."),
+                $"Unknown intent '{name}'. Try: pass, attack, keep, mulligan, noblocks, play, cast, target."),
         };
     }
 }

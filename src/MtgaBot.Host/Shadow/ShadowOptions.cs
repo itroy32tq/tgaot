@@ -1,3 +1,5 @@
+using MtgaBot.Decide;
+
 namespace MtgaBot.Host.Shadow;
 
 public sealed record ShadowOptions(
@@ -5,4 +7,5 @@ public sealed record ShadowOptions(
     bool Follow,
     string PolicyName = "FarmMvp",
     string? CardsPath = null,
-    string? CardsOverlayPath = null);
+    string? CardsOverlayPath = null,
+    FarmMvpMode Mode = FarmMvpMode.FullMvp);

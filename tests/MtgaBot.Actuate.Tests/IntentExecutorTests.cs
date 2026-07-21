@@ -58,8 +58,23 @@ public class IntentExecutorTests
         var result = await executor.ExecuteAsync(new CastIntent(42), CancellationToken.None);
 
         Assert.True(result.Success);
+        Assert.Equal(ActuateOutcomeKind.UiSucceeded, result.Kind);
+        Assert.Equal(42, result.TargetInstanceId);
         Assert.Contains(result.Actions, a => a is MoveMouseAction);
         Assert.Contains(result.Actions, a => a is DoubleClickAction);
+    }
+
+    [Fact]
+    public async Task PlayLand_HoverThenSingleClick()
+    {
+        var executor = CreateExecutor(new ImmediateHoverObjectIdSource());
+        var result = await executor.ExecuteAsync(new PlayLandIntent(42), CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(ActuateOutcomeKind.UiSucceeded, result.Kind);
+        Assert.Equal(42, result.TargetInstanceId);
+        Assert.Contains(result.Actions, a => a is ClickAction);
+        Assert.DoesNotContain(result.Actions, a => a is DoubleClickAction);
     }
 
     [Fact]
@@ -69,6 +84,7 @@ public class IntentExecutorTests
         var result = await executor.ExecuteAsync(new CastIntent(42), CancellationToken.None);
 
         Assert.False(result.Success);
+        Assert.Equal(ActuateOutcomeKind.HoverMiss, result.Kind);
         Assert.DoesNotContain(result.Actions, a => a is DoubleClickAction);
     }
 

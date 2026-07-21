@@ -204,7 +204,7 @@ static async Task<int> RunActuateLiveAsync(string[] liveArgs)
         cts.Cancel();
     };
 
-    var reporter = new LiveExecuteConsoleReporter();
+    var reporter = new LiveExecuteConsoleReporter(options.AttemptLogPath);
     var runner = new LiveExecuteRunner(reporter, options);
 
     try

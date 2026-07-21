@@ -1,3 +1,4 @@
+using MtgaBot.Decide;
 using MtgaBot.Ingest;
 
 namespace MtgaBot.Host.Shadow;
@@ -13,6 +14,7 @@ public static class ShadowArgs
         string? policyName = null;
         string? cardsPath = null;
         string? cardsOverlayPath = null;
+        FarmMvpMode? mode = null;
 
         for (var i = 0; i < args.Count; i++)
         {
@@ -37,6 +39,17 @@ public static class ShadowArgs
                     }
 
                     policyName = args[++i];
+                    break;
+                case "--mode":
+                    if (i + 1 >= args.Count)
+                    {
+                        throw new ArgumentException("Missing value for --mode.");
+                    }
+
+                    mode = PolicyFactory.ParseMode(args[++i]);
+                    break;
+                case "--land-only":
+                    mode = FarmMvpMode.LandOnly;
                     break;
                 case "--cards":
                     if (i + 1 >= args.Count)
@@ -68,22 +81,25 @@ public static class ShadowArgs
             follow,
             policyName ?? "FarmMvp",
             cardsPath,
-            cardsOverlayPath);
+            cardsOverlayPath,
+            mode ?? FarmMvpMode.FullMvp);
     }
 
     public const string Usage =
         """
-        Usage: MtgaBot.Cli shadow [--log <path>] [--follow] [--policy FarmMvp|Pass] [--cards <path>]
+        Usage: MtgaBot.Cli shadow [--log <path>] [--follow] [--policy FarmMvp|Pass] [--mode LandOnly|LandAndCast|FullMvp] [--cards <path>]
 
           --log <path>            Player.log path (default: MTGA LocalLow path)
           --follow                Tail live from end of file (no clicks)
           --policy <name>         Decision policy (default: FarmMvp)
+          --mode <name>           Farm capability: LandOnly | LandAndCast | FullMvp (default)
+          --land-only             Shortcut for --mode LandOnly
           --cards <path>          cards.json (default: data/cards.json if present)
           --cards-overlay <path>  Optional overlay (default: data/starter_deck_cards.json)
           --help                  Show this help
 
         Replay (Ingest + State + Decide, print DecisionReady + Intent):
-          MtgaBot.Cli shadow --log path\to\Player.log --policy FarmMvp
+          MtgaBot.Cli shadow --log path\to\Player.log --policy FarmMvp --mode LandOnly
 
         Live tail during a manual match:
           MtgaBot.Cli shadow --follow

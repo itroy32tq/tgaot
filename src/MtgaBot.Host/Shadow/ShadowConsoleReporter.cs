@@ -28,7 +28,7 @@ public sealed class ShadowConsoleReporter(TextWriter? output = null) : IShadowRe
         _output.WriteLine(
             $"MtgaBot shadow ({MtgaBotHost.Version}) — Ingest+State+Decide, no clicks");
         _output.WriteLine(
-            $"log: {options.LogPath}  mode: {(options.Follow ? "follow" : "replay")}  policy: {options.PolicyName}");
+            $"log: {options.LogPath}  mode: {(options.Follow ? "follow" : "replay")}  policy: {options.PolicyName}  farm: {options.Mode}");
         if (cards.CardsPath is null)
         {
             _output.WriteLine("cards: (none — FarmMvp will skip creature casts)");

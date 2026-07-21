@@ -5,14 +5,15 @@ namespace MtgaBot.Decide;
 public static class IntentValidator
 {
     /// <summary>
-    /// Ensures Cast/AttackWith Intents reference an instanceId present in LegalActions.
+    /// Ensures Play/Cast/AttackWith Intents reference an instanceId present in LegalActions.
     /// Pass/AttackAll/etc. are always considered legal.
     /// </summary>
     public static bool IsLegal(Intent intent, DecisionPoint decision)
     {
         return intent switch
         {
-            CastIntent cast => HasInstance(decision, cast.InstanceId, "ActionType_Play", "ActionType_Cast", "Play", "Cast"),
+            PlayLandIntent play => HasInstance(decision, play.InstanceId, "ActionType_Play", "Play"),
+            CastIntent cast => HasInstance(decision, cast.InstanceId, "ActionType_Cast", "Cast"),
             AttackWithIntent attack => HasInstance(decision, attack.InstanceId),
             SelectTargetIntent target when target.InstanceId < 0 => true,
             SelectTargetIntent target =>

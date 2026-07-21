@@ -66,10 +66,63 @@ public class FarmMvpPolicyTests
         var first = policy.Decide(view, Cards);
         var second = policy.Decide(view, Cards);
 
-        Assert.Equal(new CastIntent(10), first);
+        Assert.Equal(new PlayLandIntent(10), first);
         Assert.Equal(new CastIntent(11), second);
         Assert.True(IntentValidator.IsLegal(first, view.Decision));
         Assert.True(IntentValidator.IsLegal(second, view.Decision));
+    }
+
+    [Fact]
+    public void LandOnly_PlaysLandThenPasses_NoCast_NoAttack()
+    {
+        var policy = new FarmMvpPolicy(mode: FarmMvpMode.LandOnly);
+        var main = MainView(
+            turn: 3,
+            actions:
+            [
+                new LegalAction("ActionType_Play", 10, 1, null),
+                new LegalAction("ActionType_Cast", 11, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [10] = new(10, 1004, 1, "ZoneType_Hand", 1, false),
+                [11] = new(11, 1001, 1, "ZoneType_Hand", 1, false),
+            });
+
+        Assert.Equal(new PlayLandIntent(10), policy.Decide(main, Cards));
+        Assert.IsType<PassPriorityIntent>(policy.Decide(main, Cards));
+
+        var attackers = new GameView(
+            Board(turn: 3),
+            new DecisionPoint(1, DecisionKind.Attackers, 1, [new LegalAction("Prompt", null, 1, null)], null),
+            MatchPhase.InMatch);
+        Assert.IsType<PassPriorityIntent>(policy.Decide(attackers, Cards));
+    }
+
+    [Fact]
+    public void LandAndCast_CastsButDoesNotAttack()
+    {
+        var policy = new FarmMvpPolicy(mode: FarmMvpMode.LandAndCast);
+        var main = MainView(
+            turn: 3,
+            actions:
+            [
+                new LegalAction("ActionType_Cast", 11, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [11] = new(11, 1001, 1, "ZoneType_Hand", 1, false),
+            });
+
+        Assert.Equal(new CastIntent(11), policy.Decide(main, Cards));
+
+        var attackers = new GameView(
+            Board(turn: 3),
+            new DecisionPoint(1, DecisionKind.Attackers, 1, [new LegalAction("Prompt", null, 1, null)], null),
+            MatchPhase.InMatch);
+        Assert.IsType<PassPriorityIntent>(policy.Decide(attackers, Cards));
     }
 
     [Fact]
@@ -113,7 +166,7 @@ public class FarmMvpPolicyTests
                 [11] = new(11, 1001, 1, "ZoneType_Hand", 1, false),
             });
 
-        Assert.Equal(new CastIntent(10), policy.Decide(view, EmptyCardDatabase.Instance));
+        Assert.Equal(new PlayLandIntent(10), policy.Decide(view, EmptyCardDatabase.Instance));
         Assert.IsType<PassPriorityIntent>(policy.Decide(view, EmptyCardDatabase.Instance));
     }
 
@@ -222,5 +275,20 @@ public class PolicyFactoryTests
         Assert.IsType<FarmMvpPolicy>(PolicyFactory.Create("FarmMvp"));
         Assert.IsType<PassPolicy>(PolicyFactory.Create("Pass"));
         Assert.IsType<FarmMvpPolicy>(PolicyFactory.Create(null));
+    }
+
+    [Fact]
+    public void Create_FarmMvp_WithMode()
+    {
+        var policy = Assert.IsType<FarmMvpPolicy>(PolicyFactory.Create("FarmMvp", FarmMvpMode.LandOnly));
+        Assert.Equal(FarmMvpMode.LandOnly, policy.Mode);
+    }
+
+    [Fact]
+    public void ParseMode_Aliases()
+    {
+        Assert.Equal(FarmMvpMode.LandOnly, PolicyFactory.ParseMode("land-only"));
+        Assert.Equal(FarmMvpMode.LandAndCast, PolicyFactory.ParseMode("LandAndCast"));
+        Assert.Equal(FarmMvpMode.FullMvp, PolicyFactory.ParseMode(null));
     }
 }

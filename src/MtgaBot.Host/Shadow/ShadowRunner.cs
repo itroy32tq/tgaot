@@ -36,7 +36,7 @@ public sealed class ShadowRunner
         var resolved = CardDatabaseResolver.Resolve(options.CardsPath, options.CardsOverlayPath);
         _tailer = new GreLogTailer();
         _reporter = reporter;
-        _policy = PolicyFactory.Create(options.PolicyName);
+        _policy = PolicyFactory.Create(options.PolicyName, options.Mode);
         _cards = resolved.Database;
         _cardsMeta = resolved;
     }

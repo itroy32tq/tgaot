@@ -1,12 +1,21 @@
 namespace MtgaBot.Actuate;
 
+public enum HandClickProfile
+{
+    DoubleClick = 0,
+    SingleClick = 1,
+}
+
 public interface IHoverResolver
 {
     /// <summary>
-    /// Scan hand arc, wait for matching objectId, then double-click.
+    /// Scan hand arc, wait for matching objectId, then click per <paramref name="clickProfile"/>.
     /// Returns false on miss / timeout.
     /// </summary>
-    Task<bool> ClickHandCardAsync(int instanceId, CancellationToken ct);
+    Task<bool> ClickHandCardAsync(
+        int instanceId,
+        CancellationToken ct,
+        HandClickProfile clickProfile = HandClickProfile.DoubleClick);
 }
 
 public sealed class HoverResolver(
@@ -22,7 +31,10 @@ public sealed class HoverResolver(
     private readonly TimeSpan _moveDelay = moveDelay ?? TimeSpan.FromMilliseconds(10);
     private readonly TimeSpan _resetDelay = resetDelay ?? TimeSpan.FromMilliseconds(300);
 
-    public async Task<bool> ClickHandCardAsync(int instanceId, CancellationToken ct)
+    public async Task<bool> ClickHandCardAsync(
+        int instanceId,
+        CancellationToken ct,
+        HandClickProfile clickProfile = HandClickProfile.DoubleClick)
     {
         hoverSource.Reset();
         var step = Math.Max(1, profile.HandScanStep);
@@ -48,7 +60,16 @@ public sealed class HoverResolver(
             await input.ExecuteAsync(new DelayAction(_moveDelay), ct).ConfigureAwait(false);
 
             if (!await hoverSource.WaitForAsync(instanceId, _perPointTimeout, ct).ConfigureAwait(false)) continue;
-            await input.ExecuteAsync(new DoubleClickAction(), ct).ConfigureAwait(false);
+
+            if (clickProfile == HandClickProfile.SingleClick)
+            {
+                await input.ExecuteAsync(new ClickAction(), ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await input.ExecuteAsync(new DoubleClickAction(), ct).ConfigureAwait(false);
+            }
+
             return true;
         }
 

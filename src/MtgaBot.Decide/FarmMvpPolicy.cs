@@ -6,13 +6,16 @@ namespace MtgaBot.Decide;
 /// Conservative farm policy: land → safe creature/enchantment → attack all → pass.
 /// Legal GRE actions are already filtered by mana; we do not re-check costs.
 /// </summary>
-public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null) : IPolicy
+public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mode = FarmMvpMode.FullMvp) : IPolicy
 {
     public const string Name = "FarmMvp";
 
     private readonly CardPolicy _cardPolicy = cardPolicy ?? new CardPolicy();
+    private readonly FarmMvpMode _mode = mode;
     private int _currentTurnNumber;
     private bool _landPlayedThisTurn;
+
+    public FarmMvpMode Mode => _mode;
 
     public Intent Decide(GameView view, ICardDatabase cards)
     {
@@ -24,7 +27,9 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null) : IPolicy
         return view.Decision.Kind switch
         {
             DecisionKind.Mulligan => new KeepHandIntent(true),
-            DecisionKind.Attackers => new AttackAllIntent(),
+            DecisionKind.Attackers => _mode >= FarmMvpMode.FullMvp
+                ? new AttackAllIntent()
+                : new PassPriorityIntent(),
             DecisionKind.Blockers => new DeclareNoBlocksIntent(),
             DecisionKind.GroupReq => new AcknowledgeGroupIntent(),
             DecisionKind.SelectTargets => DecideSelectTarget(view),
@@ -55,8 +60,13 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null) : IPolicy
             if (land?.InstanceId is { } landId)
             {
                 _landPlayedThisTurn = true;
-                return new CastIntent(landId);
+                return new PlayLandIntent(landId);
             }
+        }
+
+        if (_mode < FarmMvpMode.LandAndCast)
+        {
+            return new PassPriorityIntent();
         }
 
         var safeCast = PickSafeCast(view, cards);
@@ -65,7 +75,7 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null) : IPolicy
             return safeCast;
         }
 
-        return !HasPass(actions) ? new PassPriorityIntent() : new PassPriorityIntent();
+        return new PassPriorityIntent();
     }
 
     private CastIntent? PickSafeCast(GameView view, ICardDatabase cards)
@@ -126,12 +136,6 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null) : IPolicy
     private static LegalAction? FindFirst(IReadOnlyList<LegalAction> actions, string actionType) =>
         actions.FirstOrDefault(action => IsActionType(action.ActionType, actionType));
 
-    private static bool HasPass(IReadOnlyList<LegalAction> actions) =>
-        actions.Any(action =>
-            IsActionType(action.ActionType, "ActionType_Pass")
-            || string.Equals(action.ActionType, "Pass", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(action.ActionType, "Prompt", StringComparison.OrdinalIgnoreCase));
-
     private static bool IsActionType(string actual, string expected) =>
         string.Equals(actual, expected, StringComparison.Ordinal)
         || string.Equals(actual, expected.Replace("ActionType_", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
@@ -143,7 +147,7 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null) : IPolicy
             return 0;
         }
 
-        // RoughCMC from symbols like "{2}{G}{G}" → 4
+        // Rough CMC from symbols like "{2}{G}{G}" → 4
         var cmc = 0;
         for (var i = 0; i < manaCost.Length; i++)
         {

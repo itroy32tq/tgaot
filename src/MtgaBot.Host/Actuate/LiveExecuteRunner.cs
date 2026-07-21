@@ -28,7 +28,7 @@ public sealed class LiveExecuteRunner
         _tailer = new GreLogTailer();
         _parser = new GreLogParser();
         _reporter = reporter;
-        _policy = PolicyFactory.Create(options.PolicyName);
+        _policy = PolicyFactory.Create(options.PolicyName, options.Mode);
         _cards = resolved.Database;
         _cardsMeta = resolved;
     }
@@ -196,6 +196,19 @@ public sealed class LiveExecuteRunner
         {
             using (busy.Enter())
             {
+                var current = engine.TryGetDecisionView() ?? view;
+                if (!IntentPreflight.TryAccept(view, intent, current, out var rejectReason))
+                {
+                    var stale = ActuateResult.FromKind(
+                        ActuateOutcomeKind.StaleIntent,
+                        intent.GetType().Name,
+                        error: rejectReason,
+                        targetInstanceId: IntentPreflight.GetHandTarget(intent));
+                    _reporter.OnActuate(stale);
+                    _reporter.OnAttempt(ActuateAttemptLog.From(view, intent, stale));
+                    return;
+                }
+
                 var result = await ExecuteIntentAsync(
                     intent,
                     options,
@@ -204,6 +217,7 @@ public sealed class LiveExecuteRunner
                     hover,
                     ct).ConfigureAwait(false);
                 _reporter.OnActuate(result);
+                _reporter.OnAttempt(ActuateAttemptLog.From(current, intent, result));
             }
         }
         finally
@@ -237,13 +251,21 @@ public sealed class LiveExecuteRunner
 
         if (!locator.TryFocusMtga())
         {
-            return new ActuateResult(false, intent.GetType().Name, [], "MTGA window not found / focus failed.");
+            return ActuateResult.FromKind(
+                ActuateOutcomeKind.Failed,
+                intent.GetType().Name,
+                error: "MTGA window not found / focus failed.",
+                targetInstanceId: IntentPreflight.GetHandTarget(intent));
         }
 
         var rect = locator.FindMtgaClientRect();
         if (rect is null)
         {
-            return new ActuateResult(false, intent.GetType().Name, [], "MTGA client rect not found.");
+            return ActuateResult.FromKind(
+                ActuateOutcomeKind.Failed,
+                intent.GetType().Name,
+                error: "MTGA client rect not found.",
+                targetInstanceId: IntentPreflight.GetHandTarget(intent));
         }
 
         var map = new CoordinateMap(rect.Value, profile);

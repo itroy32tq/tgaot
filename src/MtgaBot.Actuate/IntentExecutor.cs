@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MtgaBot.Decide;
 
 namespace MtgaBot.Actuate;
@@ -28,6 +29,8 @@ public sealed class IntentExecutor(
     {
         ArgumentNullException.ThrowIfNull(intent);
         var name = intent.GetType().Name;
+        var targetId = IntentPreflight.GetHandTarget(intent);
+        var sw = Stopwatch.StartNew();
         var recorder = new RecordingProxyInputBackend(input);
         var hover = new HoverResolver(
             map,
@@ -59,24 +62,81 @@ public sealed class IntentExecutor(
                     await ClickButtonTwiceAsync(recorder, profile.Next, ct).ConfigureAwait(false),
                 SelectTargetIntent target when target.InstanceId < 0 =>
                     await ClickButtonAsync(recorder, profile.OpponentAvatar, ct).ConfigureAwait(false),
+                PlayLandIntent play =>
+                    await ClickHandWithRetryAsync(
+                        hover,
+                        recorder,
+                        play.InstanceId,
+                        HandClickProfile.SingleClick,
+                        ct).ConfigureAwait(false),
                 CastIntent cast =>
-                    await ClickHandWithRetryAsync(hover, recorder, cast.InstanceId, ct).ConfigureAwait(false),
+                    await ClickHandWithRetryAsync(
+                        hover,
+                        recorder,
+                        cast.InstanceId,
+                        HandClickProfile.DoubleClick,
+                        ct).ConfigureAwait(false),
                 AttackWithIntent attack =>
-                    await ClickHandWithRetryAsync(hover, recorder, attack.InstanceId, ct).ConfigureAwait(false),
+                    await ClickHandWithRetryAsync(
+                        hover,
+                        recorder,
+                        attack.InstanceId,
+                        HandClickProfile.DoubleClick,
+                        ct).ConfigureAwait(false),
                 SelectTargetIntent select =>
-                    await ClickHandWithRetryAsync(hover, recorder, select.InstanceId, ct).ConfigureAwait(false),
+                    await ClickHandWithRetryAsync(
+                        hover,
+                        recorder,
+                        select.InstanceId,
+                        HandClickProfile.DoubleClick,
+                        ct).ConfigureAwait(false),
                 NoOpIntent => true,
                 _ => false,
             };
 
             var actions = (IReadOnlyList<UiAction>)recorder.Actions.ToList();
-            return ok || intent is NoOpIntent
-                ? new ActuateResult(true, name, actions)
-                : new ActuateResult(false, name, actions, "Actuation failed or hover miss.");
+            sw.Stop();
+
+            if (intent is NoOpIntent)
+            {
+                return ActuateResult.FromKind(
+                    ActuateOutcomeKind.Skipped,
+                    name,
+                    actions,
+                    elapsedMs: sw.ElapsedMilliseconds);
+            }
+
+            if (ok)
+            {
+                return ActuateResult.FromKind(
+                    ActuateOutcomeKind.UiSucceeded,
+                    name,
+                    actions,
+                    targetInstanceId: targetId,
+                    elapsedMs: sw.ElapsedMilliseconds);
+            }
+
+            var kind = targetId is not null ? ActuateOutcomeKind.HoverMiss : ActuateOutcomeKind.Failed;
+            return ActuateResult.FromKind(
+                kind,
+                name,
+                actions,
+                error: kind == ActuateOutcomeKind.HoverMiss
+                    ? "Actuation failed or hover miss."
+                    : "Actuation failed.",
+                targetInstanceId: targetId,
+                elapsedMs: sw.ElapsedMilliseconds);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new ActuateResult(false, name, recorder.Actions.ToList(), ex.Message);
+            sw.Stop();
+            return ActuateResult.FromKind(
+                ActuateOutcomeKind.Failed,
+                name,
+                recorder.Actions.ToList(),
+                error: ex.Message,
+                targetInstanceId: targetId,
+                elapsedMs: sw.ElapsedMilliseconds);
         }
     }
 
@@ -84,11 +144,12 @@ public sealed class IntentExecutor(
         IHoverResolver hover,
         IInputBackend backend,
         int instanceId,
+        HandClickProfile clickProfile,
         CancellationToken ct)
     {
         for (var attempt = 0; attempt < _hoverAttempts; attempt++)
         {
-            if (await hover.ClickHandCardAsync(instanceId, ct).ConfigureAwait(false))
+            if (await hover.ClickHandCardAsync(instanceId, ct, clickProfile).ConfigureAwait(false))
             {
                 return true;
             }

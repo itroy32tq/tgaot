@@ -2,6 +2,10 @@ namespace MtgaBot.Decide;
 
 public abstract record Intent;
 
+/// <summary>Play a land from hand (<c>ActionType_Play</c>).</summary>
+public sealed record PlayLandIntent(int InstanceId) : Intent;
+
+/// <summary>Cast a spell / permanent from hand (<c>ActionType_Cast</c>).</summary>
 public sealed record CastIntent(int InstanceId) : Intent;
 
 public sealed record AttackAllIntent : Intent;

@@ -123,12 +123,21 @@ public class ShadowArgsTests
     }
 
     [Fact]
-    public void Parse_Policy()
+    public void Parse_LandOnlyMode()
     {
-        var options = ShadowArgs.Parse(["--log", @"C:\tmp\Player.log", "--policy", "Pass"]);
+        var options = ShadowArgs.Parse(["--log", @"C:\tmp\Player.log", "--land-only"]);
 
-        Assert.Equal("Pass", options.PolicyName);
+        Assert.Equal(FarmMvpMode.LandOnly, options.Mode);
     }
+
+    [Fact]
+    public void Parse_ModeFlag()
+    {
+        var options = ShadowArgs.Parse(["--log", @"C:\tmp\Player.log", "--mode", "LandAndCast"]);
+
+        Assert.Equal(FarmMvpMode.LandAndCast, options.Mode);
+    }
+
 
     [Fact]
     public void Parse_CardsPath()
