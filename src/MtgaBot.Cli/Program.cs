@@ -1,5 +1,6 @@
 ﻿using MtgaBot.Actuate;
 using MtgaBot.Host.Actuate;
+using MtgaBot.Host.Diagnose;
 using MtgaBot.Host.Shadow;
 
 const string ActuateUsage =
@@ -34,6 +35,8 @@ switch (args[0])
         return await RunShadowAsync(args[1..]);
     case "actuate":
         return await RunActuateAsync(args[1..]);
+    case "diagnose":
+        return RunDiagnose(args[1..]);
     case "--help" or "-h" or "help":
         PrintRootHelp();
         return 0;
@@ -229,6 +232,49 @@ static async Task<int> RunActuateLiveAsync(string[] liveArgs)
     }
 }
 
+static int RunDiagnose(string[] diagnoseArgs)
+{
+    if (diagnoseArgs.Length == 0 || diagnoseArgs[0] is "--help" or "-h")
+    {
+        Console.WriteLine(MatchDiagnoseArgs.Usage);
+        return diagnoseArgs.Length == 0 ? 1 : 0;
+    }
+
+    if (!string.Equals(diagnoseArgs[0], "match", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine($"Unknown diagnose subcommand: {diagnoseArgs[0]}");
+        Console.WriteLine(MatchDiagnoseArgs.Usage);
+        return 1;
+    }
+
+    MatchDiagnoseOptions options;
+    try
+    {
+        options = MatchDiagnoseArgs.Parse(diagnoseArgs[1..]);
+    }
+    catch (ArgumentException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 1;
+    }
+
+    try
+    {
+        new MatchDiagnoseRunner().Run(options);
+        return 0;
+    }
+    catch (FileNotFoundException ex)
+    {
+        Console.Error.WriteLine(ex.Message);
+        return 1;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"diagnose match failed: {ex.Message}");
+        return 1;
+    }
+}
+
 static void PrintRootHelp()
 {
     Console.WriteLine($"MtgaBot CLI ({MtgaBot.Host.MtgaBotHost.Version})");
@@ -236,4 +282,6 @@ static void PrintRootHelp()
     Console.WriteLine(ShadowArgs.Usage);
     Console.WriteLine();
     Console.WriteLine(ActuateUsage);
+    Console.WriteLine();
+    Console.WriteLine(MatchDiagnoseArgs.Usage);
 }
