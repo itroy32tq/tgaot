@@ -47,6 +47,22 @@ public sealed class LiveExecuteConsoleReporter : ILiveExecuteReporter
         if (options.AttemptLogPath is not null)
         {
             Console.WriteLine($"attempt-log: {options.AttemptLogPath}");
+            Console.WriteLine($"decision-trace: {Path.ChangeExtension(options.AttemptLogPath, ".trace.txt")}");
+            try
+            {
+                var dir = Path.GetDirectoryName(options.AttemptLogPath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+
+                File.WriteAllText(options.AttemptLogPath, string.Empty);
+                File.WriteAllText(Path.ChangeExtension(options.AttemptLogPath, ".trace.txt")!, string.Empty);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"attempt-log truncate failed: {ex.Message}");
+            }
         }
 
         if (window is { } rect)
@@ -70,10 +86,39 @@ public sealed class LiveExecuteConsoleReporter : ILiveExecuteReporter
     public void OnDecision(GameView view, Intent intent)
     {
         var turn = view.Board.Turn;
-        Console.WriteLine(
-            $"[decision {view.Decision.DecisionId}] turn={turn.TurnNumber} phase={turn.Phase} kind={view.Decision.Kind}");
+        var ourMain1 = PriorityWindow.IsOurMain1(view.Board);
+        var line =
+            $"[decision {view.Decision.DecisionId}] turn={turn.TurnNumber} {turn.Phase}/{turn.Step} " +
+            $"kind={view.Decision.Kind} ourMain1={ourMain1} " +
+            $"active={turn.ActivePlayer} prio={turn.PriorityPlayer} me={view.Board.MySeatId} " +
+            $"hand={view.Board.HandInstanceIds.Count} → {IntentFormatter.Format(intent)}";
+        Console.WriteLine(line);
         Console.WriteLine($"  legal: {FormatLegal(view.Decision.LegalActions)}");
-        Console.WriteLine($"  → {IntentFormatter.Format(intent)}");
+        AppendTrace(line);
+    }
+
+    private void AppendTrace(string line)
+    {
+        if (_attemptLogPath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var dir = Path.GetDirectoryName(_attemptLogPath);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            var tracePath = Path.ChangeExtension(_attemptLogPath, ".trace.txt");
+            File.AppendAllText(tracePath, line + Environment.NewLine);
+        }
+        catch
+        {
+            // best-effort debug trace
+        }
     }
 
     private static string FormatLegal(IReadOnlyList<LegalAction> actions)

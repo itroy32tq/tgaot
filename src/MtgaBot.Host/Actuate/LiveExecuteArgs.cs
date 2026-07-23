@@ -94,6 +94,13 @@ public static class LiveExecuteArgs
         }
 
         logPath ??= locator.GetDefaultPlayerLogPath();
+        var resolvedMode = mode ?? FarmMvpMode.FullMvp;
+        // Land-only debugging: always keep a local trace unless the user overrides.
+        if (attemptLogPath is null && resolvedMode == FarmMvpMode.LandOnly)
+        {
+            attemptLogPath = Path.GetFullPath(Path.Combine("data", "live-last.jsonl"));
+        }
+
         return new LiveExecuteOptions(
             logPath,
             policyName ?? "FarmMvp",
@@ -101,7 +108,7 @@ public static class LiveExecuteArgs
             cardsOverlayPath,
             calibrationPath,
             dryRun,
-            mode ?? FarmMvpMode.FullMvp,
+            resolvedMode,
             attemptLogPath);
     }
 

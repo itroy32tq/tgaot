@@ -12,6 +12,7 @@ public sealed class LogHoverObjectIdSource : IHoverObjectIdSource
     private readonly List<int> _pending = [];
     private TaskCompletionSource<int>? _waiter;
     private int? _waitTarget;
+    private bool _waitAny;
     private int? _mySeatId;
 
     public void SetMySeatId(int? seatId) => _mySeatId = seatId;
@@ -26,11 +27,12 @@ public sealed class LogHoverObjectIdSource : IHoverObjectIdSource
 
         lock (_gate)
         {
-            if (_waiter is not null && _waitTarget == id)
+            if (_waiter is not null && (_waitAny || _waitTarget == id))
             {
                 var waiter = _waiter;
                 _waiter = null;
                 _waitTarget = null;
+                _waitAny = false;
                 waiter.TrySetResult(id.Value);
                 return;
             }
@@ -47,6 +49,7 @@ public sealed class LogHoverObjectIdSource : IHoverObjectIdSource
             _waiter?.TrySetCanceled();
             _waiter = null;
             _waitTarget = null;
+            _waitAny = false;
         }
     }
 
@@ -65,6 +68,7 @@ public sealed class LogHoverObjectIdSource : IHoverObjectIdSource
             waiter = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
             _waiter = waiter;
             _waitTarget = instanceId;
+            _waitAny = false;
         }
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -78,16 +82,55 @@ public sealed class LogHoverObjectIdSource : IHoverObjectIdSource
         }
         catch (OperationCanceledException)
         {
-            lock (_gate)
+            ClearWaiter(waiter);
+            return false;
+        }
+    }
+
+    public async Task<int?> WaitForAnyAsync(TimeSpan timeout, CancellationToken ct)
+    {
+        TaskCompletionSource<int> waiter;
+        lock (_gate)
+        {
+            if (_pending.Count > 0)
             {
-                if (ReferenceEquals(_waiter, waiter))
-                {
-                    _waiter = null;
-                    _waitTarget = null;
-                }
+                // Most recent id best matches the current cursor position.
+                var id = _pending[^1];
+                _pending.Clear();
+                return id;
             }
 
-            return false;
+            waiter = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _waiter = waiter;
+            _waitTarget = null;
+            _waitAny = true;
+        }
+
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        linked.CancelAfter(timeout);
+
+        try
+        {
+            await using var _ = linked.Token.Register(() => waiter.TrySetCanceled(linked.Token));
+            return await waiter.Task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            ClearWaiter(waiter);
+            return null;
+        }
+    }
+
+    private void ClearWaiter(TaskCompletionSource<int> waiter)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_waiter, waiter))
+            {
+                _waiter = null;
+                _waitTarget = null;
+                _waitAny = false;
+            }
         }
     }
 }
