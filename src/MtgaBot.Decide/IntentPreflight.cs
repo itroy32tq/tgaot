@@ -38,6 +38,14 @@ public static class IntentPreflight
             return false;
         }
 
+        if (intent is PlayLandIntent && !PriorityWindow.IsOurMain1(current.Board))
+        {
+            rejectReason =
+                $"not our Main1 (turn={current.Board.Turn.TurnNumber} {current.Board.Turn.Phase} " +
+                $"prio={current.Board.Turn.PriorityPlayer}/{current.Board.Turn.ActivePlayer})";
+            return false;
+        }
+
         rejectReason = null;
         return true;
     }

@@ -9,13 +9,30 @@ namespace MtgaBot.Decide;
 public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mode = FarmMvpMode.FullMvp) : IPolicy
 {
     public const string Name = "FarmMvp";
+    public const string WaitingMain1PriorityReason = "waiting-our-main1-priority";
 
     private readonly CardPolicy _cardPolicy = cardPolicy ?? new CardPolicy();
     private readonly FarmMvpMode _mode = mode;
     private int _currentTurnNumber = -1;
-    private bool _landAttemptedThisTurn;
+    /// <summary>
+    /// Land drop finished for this turn (GRE-confirmed or explicitly settled).
+    /// Not set by Decide alone — live must call <see cref="NotifyLandSettled"/> /
+    /// <see cref="NotifyLandActuateStarted"/> so a skipped actuate cannot burn the turn.
+    /// </summary>
+    private bool _landSettledThisTurn;
 
     public FarmMvpMode Mode => _mode;
+
+    public bool LandSettledThisTurn => _landSettledThisTurn;
+
+    /// <summary>Live started a land drag — do not pick another land until retry/turn change.</summary>
+    public void NotifyLandActuateStarted() => _landSettledThisTurn = true;
+
+    /// <summary>GRE confirmed the land left hand (or we intentionally skip land this turn).</summary>
+    public void NotifyLandSettled() => _landSettledThisTurn = true;
+
+    /// <summary>Allow another PlayLand after a failed/cancelled drag.</summary>
+    public void AllowLandRetry() => _landSettledThisTurn = false;
 
     public Intent Decide(GameView view, ICardDatabase cards)
     {
@@ -24,48 +41,75 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mod
 
         SyncTurn(view);
 
+        // Never click Pass/Next without priority — each useless Pass is ~0.9s and desyncs
+        // the live loop from Player.log (T3+ land scan then cancels with ElapsedMs=0).
+        Intent PassOrWait() => PriorityWindow.IsOurPriority(view.Board)
+            ? new PassPriorityIntent()
+            : new NoOpIntent("waiting-priority");
+
         return view.Decision.Kind switch
         {
             DecisionKind.Mulligan => new KeepHandIntent(true),
             DecisionKind.Attackers => _mode >= FarmMvpMode.FullMvp
                 ? new AttackAllIntent()
-                : new PassPriorityIntent(),
+                : PassOrWait(),
             DecisionKind.Blockers => new DeclareNoBlocksIntent(),
             DecisionKind.GroupReq => new AcknowledgeGroupIntent(),
             DecisionKind.SelectTargets => DecideSelectTarget(view),
-            DecisionKind.MainPhase when IsMainPhase(view.Board.Turn) => DecideMainPhase(view, cards),
-            DecisionKind.MainPhase => new PassPriorityIntent(),
-            DecisionKind.PayCosts => new PassPriorityIntent(),
-            DecisionKind.CastingTimeOptions => new PassPriorityIntent(),
-            DecisionKind.AssignDamage => new PassPriorityIntent(),
-            DecisionKind.SelectN => new PassPriorityIntent(),
-            _ => new PassPriorityIntent(),
+            DecisionKind.MainPhase when IsMainPhase(view.Board.Turn) => DecideMainPhase(view, cards, PassOrWait),
+            // Sticky MainPhase during our Beginning/Draw — never Pass (skips Main1).
+            DecisionKind.MainPhase when IsOurBeginning(view.Board) =>
+                new NoOpIntent("waiting-main1-after-beginning"),
+            DecisionKind.MainPhase => PassOrWait(),
+            DecisionKind.PayCosts => PassOrWait(),
+            DecisionKind.CastingTimeOptions => PassOrWait(),
+            DecisionKind.AssignDamage => PassOrWait(),
+            DecisionKind.SelectN => PassOrWait(),
+            _ => PassOrWait(),
         };
     }
 
     private static bool IsMainPhase(TurnInfo turn) =>
         turn.Phase is "Phase_Main1" or "Phase_Main2";
 
-    private Intent DecideMainPhase(GameView view, ICardDatabase cards)
+    private static bool IsOurBeginning(GameSnapshot board)
+    {
+        if (board.Turn.Phase != "Phase_Beginning" || board.Turn.TurnNumber <= 0)
+        {
+            return false;
+        }
+
+        var active = board.Turn.ActivePlayer;
+        return active <= 0 || active == board.MySeatId;
+    }
+
+    private Intent DecideMainPhase(GameView view, ICardDatabase cards, Func<Intent> passOrWait)
     {
         var actions = view.Decision.LegalActions;
         if (actions.Count == 0)
         {
-            return new PassPriorityIntent();
+            return passOrWait();
         }
 
-        if (!_landAttemptedThisTurn)
+        if (!_landSettledThisTurn)
         {
             var landIntent = TryPlayLand(view, actions);
             if (landIntent is not null)
             {
                 return landIntent;
             }
+
+            // Our Main1 with a playable land, but not our priority yet.
+            // Passing clicks Next and burns the land window — wait instead.
+            if (PriorityWindow.IsOurTurnMain1(view.Board) && HasPlayableLandInHand(view, actions))
+            {
+                return new NoOpIntent(WaitingMain1PriorityReason);
+            }
         }
 
         if (_mode < FarmMvpMode.LandAndCast)
         {
-            return new PassPriorityIntent();
+            return passOrWait();
         }
 
         var safeCast = PickSafeCast(view, cards);
@@ -74,11 +118,16 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mod
             return safeCast;
         }
 
-        return new PassPriorityIntent();
+        return passOrWait();
     }
 
     private Intent? TryPlayLand(GameView view, IReadOnlyList<LegalAction> actions)
     {
+        if (!PriorityWindow.IsOurMain1(view.Board))
+        {
+            return null;
+        }
+
         if (view.Decision.SystemSeatId != 0
             && view.Board.MySeatId != 0
             && view.Decision.SystemSeatId != view.Board.MySeatId)
@@ -105,18 +154,36 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mod
                 continue;
             }
 
-            _landAttemptedThisTurn = true;
+            // Do not settle here — live settles on actuate start / GRE ack.
             return new PlayLandIntent(landId);
         }
 
         if (playWithoutId is not null)
         {
-            // Cannot aim without instanceId — skip land for this turn (do not fall through to Cast as "land").
-            _landAttemptedThisTurn = true;
+            // Cannot aim without instanceId — skip land for this turn.
+            _landSettledThisTurn = true;
             return new NoOpIntent("Play without instanceId — skipped land");
         }
 
         return null;
+    }
+
+    public static bool HasPlayableLandInHand(GameView view, IReadOnlyList<LegalAction> actions)
+    {
+        foreach (var action in actions)
+        {
+            if (!IsActionType(action.ActionType, "ActionType_Play") || action.InstanceId is not { } landId)
+            {
+                continue;
+            }
+
+            if (view.Board.HandInstanceIds.Contains(landId))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private CastIntent? PickSafeCast(GameView view, ICardDatabase cards)
@@ -177,14 +244,14 @@ public sealed class FarmMvpPolicy(CardPolicy? cardPolicy = null, FarmMvpMode mod
             || _currentTurnNumber < 0)
         {
             _currentTurnNumber = turnNumber;
-            _landAttemptedThisTurn = false;
+            _landSettledThisTurn = false;
             return;
         }
 
         if (turnNumber > _currentTurnNumber)
         {
             _currentTurnNumber = turnNumber;
-            _landAttemptedThisTurn = false;
+            _landSettledThisTurn = false;
         }
     }
 

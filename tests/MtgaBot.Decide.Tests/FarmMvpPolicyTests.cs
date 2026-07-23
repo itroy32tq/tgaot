@@ -13,7 +13,7 @@ public class FarmMvpPolicyTests
     ]);
 
     [Fact]
-    public void MainPhase_OnBeginning_PassesInsteadOfCasting()
+    public void MainPhase_OnOurBeginning_WaitsForMain1_DoesNotPass()
     {
         var policy = new FarmMvpPolicy();
         var view = new GameView(
@@ -42,6 +42,29 @@ public class FarmMvpPolicyTests
                 null),
             MatchPhase.InMatch);
 
+        var intent = Assert.IsType<NoOpIntent>(policy.Decide(view, Cards));
+        Assert.Equal("waiting-main1-after-beginning", intent.Reason);
+    }
+
+    [Fact]
+    public void MainPhase_OnOpponentBeginning_Passes()
+    {
+        var policy = new FarmMvpPolicy(mode: FarmMvpMode.LandOnly);
+        var view = MainView(
+            turn: 2,
+            actions:
+            [
+                new LegalAction("ActionType_Play", 10, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [10] = new(10, 1004, 1, "ZoneType_Hand", 1, false),
+            },
+            phase: "Phase_Beginning",
+            activePlayer: 2,
+            priorityPlayer: 1);
+
         Assert.IsType<PassPriorityIntent>(policy.Decide(view, Cards));
     }
 
@@ -64,12 +87,76 @@ public class FarmMvpPolicyTests
             });
 
         var first = policy.Decide(view, Cards);
+        policy.NotifyLandActuateStarted();
         var second = policy.Decide(view, Cards);
 
         Assert.Equal(new PlayLandIntent(10), first);
         Assert.Equal(new CastIntent(11), second);
         Assert.True(IntentValidator.IsLegal(first, view.Decision));
         Assert.True(IntentValidator.IsLegal(second, view.Decision));
+    }
+
+    [Fact]
+    public void WithoutOurPriority_WaitsInsteadOfPassing()
+    {
+        var policy = new FarmMvpPolicy(mode: FarmMvpMode.LandOnly);
+        var view = MainView(
+            turn: 1,
+            actions:
+            [
+                new LegalAction("ActionType_Play", 10, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [10] = new(10, 1004, 1, "ZoneType_Hand", 1, false),
+            },
+            activePlayer: 1,
+            priorityPlayer: 2);
+
+        // Our turn Main1 but not our priority + land due → waiting-our-main1-priority
+        var waitLand = Assert.IsType<NoOpIntent>(policy.Decide(view, Cards));
+        Assert.Equal(FarmMvpPolicy.WaitingMain1PriorityReason, waitLand.Reason);
+
+        var ready = MainView(
+            turn: 1,
+            actions:
+            [
+                new LegalAction("ActionType_Play", 10, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [10] = new(10, 1004, 1, "ZoneType_Hand", 1, false),
+            },
+            activePlayer: 1,
+            priorityPlayer: 1);
+        Assert.Equal(new PlayLandIntent(10), policy.Decide(ready, Cards));
+
+        policy.NotifyLandSettled();
+        var waitPrio = Assert.IsType<NoOpIntent>(policy.Decide(view, Cards));
+        Assert.Equal("waiting-priority", waitPrio.Reason);
+    }
+
+    [Fact]
+    public void OpponentMain1_WithPlayableLand_Passes_DoesNotWait()
+    {
+        var policy = new FarmMvpPolicy(mode: FarmMvpMode.LandOnly);
+        var oppMain1 = MainView(
+            turn: 2,
+            actions:
+            [
+                new LegalAction("ActionType_Play", 10, 1, null),
+                new LegalAction("ActionType_Pass", null, 1, null),
+            ],
+            objects: new Dictionary<int, CardView>
+            {
+                [10] = new(10, 1004, 1, "ZoneType_Hand", 1, false),
+            },
+            activePlayer: 2,
+            priorityPlayer: 1);
+
+        Assert.IsType<PassPriorityIntent>(policy.Decide(oppMain1, Cards));
     }
 
     [Fact]
@@ -159,6 +246,7 @@ public class FarmMvpPolicyTests
             });
 
         Assert.Equal(new PlayLandIntent(10), policy.Decide(main1, Cards));
+        policy.NotifyLandActuateStarted();
 
         var main2 = MainView(
             turn: 1,
@@ -195,6 +283,7 @@ public class FarmMvpPolicyTests
             });
 
         Assert.Equal(new PlayLandIntent(10), policy.Decide(main, Cards));
+        policy.NotifyLandSettled();
         Assert.IsType<PassPriorityIntent>(policy.Decide(main, Cards));
 
         var attackers = new GameView(
@@ -271,6 +360,7 @@ public class FarmMvpPolicyTests
             });
 
         Assert.Equal(new PlayLandIntent(10), policy.Decide(view, EmptyCardDatabase.Instance));
+        policy.NotifyLandActuateStarted();
         Assert.IsType<PassPriorityIntent>(policy.Decide(view, EmptyCardDatabase.Instance));
     }
 
@@ -327,19 +417,23 @@ public class FarmMvpPolicyTests
         int turn,
         IReadOnlyList<LegalAction> actions,
         IReadOnlyDictionary<int, CardView> objects,
-        string phase = "Phase_Main1") =>
+        string phase = "Phase_Main1",
+        int activePlayer = 1,
+        int priorityPlayer = 1) =>
         new(
-            Board(turn, objects, phase),
+            Board(turn, objects, phase, activePlayer, priorityPlayer),
             new DecisionPoint(42, DecisionKind.MainPhase, 1, actions, null),
             MatchPhase.InMatch);
 
     private static GameSnapshot Board(
         int turn,
         IReadOnlyDictionary<int, CardView>? objects = null,
-        string phase = "Phase_Main1") =>
+        string phase = "Phase_Main1",
+        int activePlayer = 1,
+        int priorityPlayer = 1) =>
         new(
             MySeatId: 1,
-            Turn: new TurnInfo(phase, "Step_Begin", turn, 1, 1, 1),
+            Turn: new TurnInfo(phase, "Step_Begin", turn, activePlayer, priorityPlayer, priorityPlayer),
             Objects: objects ?? new Dictionary<int, CardView>(),
             HandInstanceIds: objects?.Keys.ToList() ?? [],
             BattlefieldInstanceIds: [],
