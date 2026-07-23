@@ -103,22 +103,35 @@
 | 1.4 | Критерий успеха земли: id исчез из hand **или** `ActionType_Play` пропал из legal **или** виден client play/cast submit (что стабильнее в логе — зафиксировать в коде одним helper) |
 | 1.5 | Бюджет actuate земли: ≤ 3–4 s; по истечении → fail → Pass (не 3×200 точек) |
 
-#### 1B — Попадание в карту (слой B) — минимально достаточное
+#### 1B — Попадание в карту (слой B) — inventory-скан
 
-Порядок внедрения (от простого к сложному; остановиться на первом, кто держит приёмку):
+Индекс hand → калиброванная точка **не используем** как основной hit: геометрия руки плавает (размер, overlap, letterbox).  
+Слепой stop-on-first-match по целевому id тоже отвергнут (ранний выход ломает выбор и отладку).
 
-| Приоритет | Подход | Когда брать |
-|-----------|--------|-------------|
-| B1 | **Индекс в hand → калиброванная точка → click → GRE ack** | hand size ≤ 5–7, starter |
-| B2 | B1 + короткое уточнение (±N px), wait **нового** hover == target | B1 даёт промахи по overlap |
-| B3 | Полный скан дуги как **recovery** (1 проход, событийный hover) | B2 всё ещё miss |
+**Целевой контракт 1B (земля):**
+
+```
+1. Полный скан дуги руки (один проход, без early-exit на первой земле)
+2. Инвентарь: [{instanceId, screenX, screenY}, …] — плато hover id → середина сегмента
+3. Фильтр земель по legal Play ids (из GRE / PlayLandIntent)
+4. Decide/picker (stub): первая земля слева направо по X
+   (позже — учёт цвета / маны; picker не двигает мышь)
+5. Actuate: курсор на координаты → mouse down → drag вверх → mouse up
+6. Успех = GRE-ack (id ∉ hand), не факт жеста
+```
 
 | # | Работа |
 |---|--------|
-| 1.6 | Single-click для `PlayLandIntent` (не double-click как у spell) |
-| 1.7 | Не стартовать hit, пока options/modal overlay открыт |
-| 1.8 | Калибровка: проверка window rect / design size в начале live |
-| 1.9 | Debug bundle при miss: target id, last hover ids, endpoints, screenshot |
+| 1.6 | `HandInventoryScanner` — полный проход P1→P2, `WaitForAny` hover, без stop на match |
+| 1.7 | `LandPlayPicker.PickFirst` — stub; API готов под цвет позже |
+| 1.8 | Жест PlayLand: click+drag up (не double-click; не «клик = успех») |
+| 1.9 | Бюджет: **один** полный проход скана + жест; timeout = estimate(arc)+slack (не резать дугу на 4 s) |
+| 1.10 | Не стартовать hit, пока options/modal overlay открыт |
+| 1.11 | Калибровка: window rect / design size + `land_drag_up` в design px |
+| 1.12 | Debug при miss: inventory ids/coords, target set, endpoints |
+| 1.13 | Live: после drag ждать GRE-ack (`HandActionAck`) без nested channel-read (рефактор loop) |
+
+Cast (шаг 2) пока может оставаться на stop-on-target double-click; землю **не** рефакторить «заодно» с кастом.
 
 **Режим:** `LandOnly` — после земли всегда Pass до конца хода (каст/атака выключены).
 
@@ -126,13 +139,13 @@
 
 1. Keep с catch-up — без регресса.  
 2. Ход 1–N: при наличии Play — земля на столе **до** конца Main1; нет скана на Beginning.  
-3. Нет «вечной тяги» руки (бюджет соблюдён).  
+3. Нет «вечной тяги» руки (бюджет соблюдён; один проход дуги).  
 4. **5 матчей подряд** starter (или эквивалент replay+live) с land success ≥ порога (цель: 100% на чистых Main1 с одной землёй в hand).  
 5. Регресс: Keep/Pass по кнопкам как раньше.
 
 **Стоп-критерий:** не начинать шаг 2, пока приёмка 1 красная.
 
-**Статус (2026-07):** слой **1A** (гейты, `PlayLandIntent`, `HandActionAck`, land-once, mulligan unlock) — в коде. Слой **1B** (blind index / hover scan / жесты) — **сброшен как тупик** после live: скан до приоритета, ложный cast, зависание UI. Переписывать hit отдельно; до зелёной приёмки 1B live `--land-only` не считать готовым.
+**Статус (2026-07):** слой **1A** — в коде. Новый **1B hit** в коде: `HandInventoryScanner` → `LandPlayPicker.PickFirst` → drag up (`MouseDown`/`MouseUp`), бюджет 4 s, `WaitForAny`. Live outcome пока `UiSucceeded` (п. 1.13 GRE-ack в loop — следующий инкремент). `--land-only` live не считать готовым до приёмки 5 матчей.
 
 ---
 
@@ -185,15 +198,16 @@
 
 ### Шаг 5 — Усиление скана (только если 1B/2 ещё хрупкие)
 
-Делать **после** зелёной земли на B1/B2, если нужны руки >7 / overlap:
+Делать **после** зелёной земли на inventory-пути, если нужны руки >7 / сильный overlap / цветной picker:
 
 | # | Работа |
 |---|--------|
 | 5.1 | Событийный wait hover (новая строка), не фиксированные 40 ms на клетку |
-| 5.2 | Грубый проход → refine около кандидата |
-| 5.3 | Метрики miss rate / mean scan ms |
+| 5.2 | Грубый проход → refine около кандидата (плато id) |
+| 5.3 | Picker по цвету / мане вместо `PickFirst` |
+| 5.4 | Метрики miss rate / mean scan ms / inventory size |
 
-Не открывать шаг 5 «на всякий случай», если приёмка 1–2 уже зелёная на индексе.
+Не открывать шаг 5 «на всякий случай», если приёмка 1–2 уже зелёная.
 
 ---
 
@@ -238,7 +252,7 @@ CI / ручной чеклист перед мержем:
 Шаг 0  Каркас Intent / re-check / режимы / лог attempt
    │
    ▼
-Шаг 1  Земля: A-гейты + GRE-ack + бюджет + B1→B2→B3  ──► СТОП пока 5 матчей ok
+Шаг 1  Земля: A-гейты + inventory-скан + PickFirst + drag + GRE-ack  ──► СТОП пока 5 матчей ok
    │
    ▼
 Шаг 2  Каст (не ломая land path)
@@ -263,9 +277,11 @@ CI / ручной чеклист перед мержем:
 |------|------------------|
 | A — FSM / гейты | `PromptTracker`, `DecisionGate`, `FarmMvpPolicy`, `Intent.cs` |
 | A — валидация | `IntentValidator`, pre-flight в `LiveExecuteRunner` / `IntentExecutor` |
-| B — земля/каст | `HoverResolver`, `LogHoverObjectIdSource`, click profile в executor |
-| Ack | новый helper рядом с Ingest/State (парсинг client submit / zone diff) |
+| B — земля | `HandInventoryScanner`, `LandPlayPicker`, drag в `IntentExecutor` / `SendInputBackend` |
+| B — каст (шаг 2) | `HoverResolver` stop-on-target + double-click (пока отдельно от земли) |
+| Hover signal | `LogHoverObjectIdSource` (`WaitFor` / `WaitForAny`) |
+| Ack | `HandActionAck` + wiring в live после жеста |
 | Режимы | CLI `actuate live` + policy options |
-| Калибровка | `CalibrationProfile`, `hand_scan_points` |
+| Калибровка | `CalibrationProfile`, `hand_scan_points`, `land_drag_up` |
 
 Детали багов и чеклист причин сбоев — в [`hand-select-and-cast.md`](hand-select-and-cast.md) §4–7; этот план задаёт **порядок**, а не дублирует весь разбор.
