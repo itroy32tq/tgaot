@@ -182,6 +182,208 @@ public class MulliganUnlockTests
         Assert.Null(engine.TryGetDecisionView());
     }
 
+    [Fact]
+    public void MulliganResp_ThenMain1WithoutActions_OpensFromSticky()
+    {
+        var engine = new StateEngine();
+        var views = new List<GameView>();
+        engine.DecisionReady += views.Add;
+
+        engine.Apply(Evt(1,
+            """
+            {
+              "type": "GREMessageType_MulliganReq",
+              "systemSeatIds": [1],
+              "mulliganReq": { "mulliganType": "MulliganType_London" }
+            }
+            """));
+
+        engine.Apply(Evt(2,
+            """
+            {
+              "type": "GREMessageType_GameStateMessage",
+              "systemSeatIds": [1],
+              "gameStateMessage": {
+                "type": "GameStateType_Diff",
+                "turnInfo": {
+                  "turnNumber": 0,
+                  "phase": "Phase_Unknown",
+                  "step": "Step_Unknown",
+                  "activePlayer": 1,
+                  "decisionPlayer": 1
+                },
+                "zones": [
+                  { "zoneId": 31, "type": "ZoneType_Hand", "ownerSeatId": 1, "objectInstanceIds": [10] }
+                ],
+                "gameObjects": [
+                  { "instanceId": 10, "grpId": 1, "zoneId": 31, "ownerSeatId": 1 }
+                ],
+                "players": [
+                  { "systemSeatNumber": 1, "lifeTotal": 20 },
+                  { "systemSeatNumber": 2, "lifeTotal": 20 }
+                ],
+                "actions": [
+                  { "seatId": 1, "action": { "actionType": "ActionType_Play", "instanceId": 10 } }
+                ]
+              }
+            }
+            """));
+
+        // Client Keep response must NOT Clear() the mulligan lock.
+        engine.Apply(Evt(3,
+            """
+            {
+              "type": "ClientMessageType_MulliganResp",
+              "systemSeatIds": [1],
+              "mulliganResp": { "decision": "MulliganDecision_Keep" }
+            }
+            """));
+        Assert.Null(engine.TryGetDecisionView());
+        views.Clear();
+
+        engine.Apply(Evt(4,
+            """
+            {
+              "type": "GREMessageType_GameStateMessage",
+              "systemSeatIds": [1],
+              "gameStateMessage": {
+                "type": "GameStateType_Diff",
+                "turnInfo": {
+                  "turnNumber": 1,
+                  "phase": "Phase_Main1",
+                  "step": "Step_Begin",
+                  "activePlayer": 1,
+                  "decisionPlayer": 1
+                },
+                "players": [
+                  { "systemSeatNumber": 1, "lifeTotal": 20 },
+                  { "systemSeatNumber": 2, "lifeTotal": 20 }
+                ]
+              }
+            }
+            """));
+
+        Assert.Contains(views, v => v.Decision.Kind == DecisionKind.MainPhase);
+        Assert.NotNull(engine.TryGetDecisionView());
+    }
+
+    [Fact]
+    public void Main1Sticky_WithRemappedHandIds_ClearsStale_ThenOpensOnFreshActions()
+    {
+        var engine = new StateEngine();
+        var views = new List<GameView>();
+        engine.DecisionReady += views.Add;
+
+        engine.Apply(Evt(1,
+            """
+            {
+              "type": "GREMessageType_MulliganReq",
+              "systemSeatIds": [1],
+              "mulliganReq": { "mulliganType": "MulliganType_London" }
+            }
+            """));
+
+        engine.Apply(Evt(2,
+            """
+            {
+              "type": "GREMessageType_GameStateMessage",
+              "systemSeatIds": [1],
+              "gameStateMessage": {
+                "type": "GameStateType_Diff",
+                "turnInfo": {
+                  "turnNumber": 0,
+                  "phase": "Phase_Unknown",
+                  "step": "Step_Unknown",
+                  "activePlayer": 1,
+                  "decisionPlayer": 1
+                },
+                "zones": [
+                  { "zoneId": 31, "type": "ZoneType_Hand", "ownerSeatId": 1, "objectInstanceIds": [10] }
+                ],
+                "gameObjects": [
+                  { "instanceId": 10, "grpId": 1, "zoneId": 31, "ownerSeatId": 1 }
+                ],
+                "players": [
+                  { "systemSeatNumber": 1, "lifeTotal": 20 },
+                  { "systemSeatNumber": 2, "lifeTotal": 20 }
+                ],
+                "actions": [
+                  { "seatId": 1, "action": { "actionType": "ActionType_Play", "instanceId": 10 } }
+                ]
+              }
+            }
+            """));
+
+        engine.AcknowledgeMulliganAnswered();
+        views.Clear();
+
+        // Hand remapped; old instance deleted; Main1 Diff omits actions — sticky id 10 is stale.
+        engine.Apply(Evt(3,
+            """
+            {
+              "type": "GREMessageType_GameStateMessage",
+              "systemSeatIds": [1],
+              "gameStateMessage": {
+                "type": "GameStateType_Diff",
+                "turnInfo": {
+                  "turnNumber": 1,
+                  "phase": "Phase_Main1",
+                  "step": "Step_Begin",
+                  "activePlayer": 1,
+                  "decisionPlayer": 1
+                },
+                "diffDeletedInstanceIds": [10],
+                "zones": [
+                  { "zoneId": 31, "type": "ZoneType_Hand", "ownerSeatId": 1, "objectInstanceIds": [221, 225] }
+                ],
+                "gameObjects": [
+                  { "instanceId": 221, "grpId": 1, "zoneId": 31, "ownerSeatId": 1 },
+                  { "instanceId": 225, "grpId": 2, "zoneId": 31, "ownerSeatId": 1 }
+                ],
+                "players": [
+                  { "systemSeatNumber": 1, "lifeTotal": 20 },
+                  { "systemSeatNumber": 2, "lifeTotal": 20 }
+                ]
+              }
+            }
+            """));
+
+        Assert.Null(engine.TryGetDecisionView());
+        Assert.Contains("prompt=None", engine.DescribeWhyNoDecision(), StringComparison.OrdinalIgnoreCase);
+
+        // Fresh actions with new ids.
+        engine.Apply(Evt(4,
+            """
+            {
+              "type": "GREMessageType_GameStateMessage",
+              "systemSeatIds": [1],
+              "gameStateMessage": {
+                "type": "GameStateType_Diff",
+                "turnInfo": {
+                  "turnNumber": 1,
+                  "phase": "Phase_Main1",
+                  "step": "Step_Begin",
+                  "activePlayer": 1,
+                  "decisionPlayer": 1
+                },
+                "actions": [
+                  { "seatId": 1, "action": { "actionType": "ActionType_Play", "instanceId": 221 } },
+                  { "seatId": 1, "action": { "actionType": "ActionType_Cast", "instanceId": 225 } }
+                ],
+                "players": [
+                  { "systemSeatNumber": 1, "lifeTotal": 20 },
+                  { "systemSeatNumber": 2, "lifeTotal": 20 }
+                ]
+              }
+            }
+            """));
+
+        Assert.Contains(views, v => v.Decision.Kind == DecisionKind.MainPhase);
+        Assert.Contains(
+            engine.TryGetDecisionView()!.Decision.LegalActions,
+            a => a.InstanceId == 221);
+    }
+
     private static GreEvent Evt(ulong seq, string json)
     {
         using var doc = JsonDocument.Parse(json);

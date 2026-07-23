@@ -64,6 +64,8 @@ internal static class LegalActionFilter
             turn.TurnNumber,
             turn.Phase,
             turn.Step,
+            turn.ActivePlayer,
+            turn.PriorityPlayer,
             view.Decision.Kind,
             view.Decision.SystemSeatId,
             view.Board.HandInstanceIds.Count,

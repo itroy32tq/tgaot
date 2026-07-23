@@ -81,7 +81,7 @@ public class LegalActionFilterTests
 public class PromptTrackerTests
 {
     [Fact]
-    public void ApplyGameStateActions_Empty_ClearsStickyPrompt()
+    public void ApplyGameStateActions_Empty_KeepsStickyMainPhase()
     {
         var tracker = new PromptTracker();
         tracker.ApplyGameStateActions(
@@ -91,9 +91,43 @@ public class PromptTrackerTests
 
         Assert.NotNull(tracker.BuildDecisionPoint(1));
 
+        // Empty seat slice must not wipe an open MainPhase (transient parse/seat miss).
         tracker.ApplyGameStateActions([], seatId: 1, new TurnInfo("Phase_Main1", "Step_Begin", 1, 1, 1, 1));
 
-        Assert.Null(tracker.BuildDecisionPoint(2));
+        Assert.NotNull(tracker.BuildDecisionPoint(2));
+    }
+
+    [Fact]
+    public void BuildDecisionPoint_SuppressesStickyMainPhase_DuringOurBeginning()
+    {
+        var tracker = new PromptTracker();
+        tracker.ApplyGameStateActions(
+            [new LegalAction("ActionType_Play", 1, 1, null)],
+            seatId: 1,
+            new TurnInfo("Phase_Main1", "Step_Begin", 1, 1, 1, 1));
+
+        var beginning = new GameSnapshot(
+            MySeatId: 1,
+            Turn: new TurnInfo("Phase_Beginning", "Step_Draw", 3, ActivePlayer: 1, PriorityPlayer: 1, DecisionPlayer: 1),
+            Objects: new Dictionary<int, CardView>
+            {
+                [1] = new(1, 100, 1, "ZoneType_Hand", 1, false),
+            },
+            HandInstanceIds: [1],
+            BattlefieldInstanceIds: [],
+            StackInstanceIds: [],
+            MyLife: 20,
+            OpponentLife: 20,
+            Mana: ManaPool.Empty,
+            PendingMessageCount: 0);
+
+        Assert.Null(tracker.BuildDecisionPoint(3, beginning));
+
+        var main1 = beginning with
+        {
+            Turn = beginning.Turn with { Phase = "Phase_Main1", Step = "Step_Begin" },
+        };
+        Assert.NotNull(tracker.BuildDecisionPoint(4, main1));
     }
 
     [Fact]

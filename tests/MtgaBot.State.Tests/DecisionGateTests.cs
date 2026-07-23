@@ -6,13 +6,13 @@ namespace MtgaBot.State.Tests;
 public class DecisionGateTests
 {
     [Fact]
-    public void CanDecide_WhenPendingMessages_BlocksMainPhase()
+    public void CanDecide_WhenPendingMessages_AllowsMainPhase()
     {
         var gate = new DecisionGate();
-        var snapshot = CreateSnapshot(pendingMessageCount: 1);
+        var snapshot = CreateSnapshot(pendingMessageCount: 2);
         var decision = CreateDecision(DecisionKind.MainPhase);
 
-        Assert.False(gate.CanDecide(snapshot, decision, actuatorBusy: false));
+        Assert.True(gate.CanDecide(snapshot, decision, actuatorBusy: false));
     }
 
     [Fact]

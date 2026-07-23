@@ -40,6 +40,9 @@ internal sealed class PromptTracker
     /// </summary>
     public void MarkMulliganUiAnswered() => _mulliganUiAnswered = true;
 
+    /// <summary>Allow Keep to be emitted again when the previous click was not confirmed by GRE.</summary>
+    public void ClearMulliganUiAnswered() => _mulliganUiAnswered = false;
+
     public void ApplyGreRequest(string messageType, JsonElement message)
     {
         _kind = MapKind(messageType);
@@ -153,6 +156,12 @@ internal sealed class PromptTracker
 
         if (actions.Count == 0)
         {
+            // Empty seat slice must not wipe an already-open MainPhase (parse/seat filter miss).
+            if (_kind is DecisionKind.MainPhase or DecisionKind.Attackers or DecisionKind.Blockers)
+            {
+                return;
+            }
+
             Clear();
             return;
         }
@@ -197,6 +206,18 @@ internal sealed class PromptTracker
             return null;
         }
 
+        // Sticky MainPhase from the previous turn often survives into our Beginning/Draw.
+        // Emitting it makes LandOnly Pass through Next and skip Main1 (T1 works because
+        // post-Keep is still Mulligan-locked; T3+ burns on draw).
+        if (decision.Kind == DecisionKind.MainPhase
+            && board.Turn.Phase == "Phase_Beginning"
+            && board.Turn.TurnNumber > 0
+            && board.MySeatId > 0
+            && board.Turn.ActivePlayer == board.MySeatId)
+        {
+            return null;
+        }
+
         if (_promptLocked)
         {
             return decision;
@@ -205,6 +226,15 @@ internal sealed class PromptTracker
         var pruned = LegalActionFilter.PruneAgainstBoard(decision.LegalActions, board);
         if (pruned.Count == 0)
         {
+            // Opening-hand sticky Play/Cast ids are often remapped after Keep.
+            // Leaving MainPhase with only stale ids blocks forever (no DecisionReady).
+            if (_kind == DecisionKind.MainPhase && !_promptLocked)
+            {
+                _kind = DecisionKind.None;
+                _legalActions = Array.Empty<LegalAction>();
+                _prompt = null;
+            }
+
             return null;
         }
 

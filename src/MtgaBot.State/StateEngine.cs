@@ -44,6 +44,9 @@ public sealed class StateEngine : IStateEngine
 
     public bool ActuatorBusy { get; set; }
 
+    /// <summary>True after <c>ClientMessageType_MulliganResp</c> in this match session.</summary>
+    public bool MulliganResponseSeen { get; private set; }
+
     public void Apply(GreEvent evt)
     {
         var message = evt.Message;
@@ -73,8 +76,13 @@ public sealed class StateEngine : IStateEngine
                 _annotationTracker.RemoveByType(_reducer.State, "AnnotationType_PlayerSelectingTargets", _mySeatId);
                 break;
             case "ClientMessageType_MulliganResp":
-                // Keep/mulligan answered — unlock so the next MainPhase can open.
-                _promptTracker.Clear();
+                // Keep/mulligan answered in log — same as UI ack: suppress re-Keep but keep
+                // Mulligan lock so Main1 Diff without actions can unlock via sticky Play/Cast.
+                // Clear() here used to wipe the lock and strand the live loop after Keep.
+                _promptTracker.MarkMulliganUiAnswered();
+                MulliganResponseSeen = true;
+                _lastEmittedDecisionId = 0;
+                _lastEmittedSignature = null;
                 break;
             case "MatchGameRoomStateChanged":
                 _lifecycle.ApplyMatchState(payload);
@@ -141,6 +149,55 @@ public sealed class StateEngine : IStateEngine
         return _snapshotBuilder.Build(_reducer.State, seatId);
     }
 
+    /// <summary>Why <see cref="TryGetDecisionView"/> is null (live diagnostics).</summary>
+    public string DescribeWhyNoDecision()
+    {
+        if (_mySeatId is not int seatId)
+        {
+            return "mySeatId unset";
+        }
+
+        var snapshot = _snapshotBuilder.Build(_reducer.State, seatId);
+        var turn = snapshot.Turn;
+        var seatActions = _reducer.State.Actions.Count(a => a.SeatId == seatId);
+        var raw = _promptTracker.BuildDecisionPoint(_currentDecisionId);
+        if (raw is null)
+        {
+            return $"prompt=None/suppressed turn={turn.TurnNumber} {turn.Phase}/{turn.Step} stickySeatActions={seatActions} pending={snapshot.PendingMessageCount}";
+        }
+
+        if (ActuatorBusy)
+        {
+            return $"actuatorBusy kind={raw.Kind}";
+        }
+
+        if (raw.SystemSeatId != snapshot.MySeatId)
+        {
+            return $"seat mismatch decisionSeat={raw.SystemSeatId} mySeat={snapshot.MySeatId} kind={raw.Kind}";
+        }
+
+        if (raw.LegalActions.Count == 0)
+        {
+            return $"empty legal kind={raw.Kind}";
+        }
+
+        var pruned = LegalActionFilter.PruneAgainstBoard(raw.LegalActions, snapshot);
+        if (pruned.Count == 0)
+        {
+            return $"all {raw.LegalActions.Count} actions pruned vs hand[{string.Join(',', snapshot.HandInstanceIds)}] kind={raw.Kind} stickySeatActions={seatActions}";
+        }
+
+        if (snapshot.PendingMessageCount != 0
+            && raw.Kind is not (DecisionKind.Mulligan or DecisionKind.Attackers or DecisionKind.Blockers
+                or DecisionKind.SelectTargets or DecisionKind.SelectN or DecisionKind.GroupReq
+                or DecisionKind.PayCosts or DecisionKind.CastingTimeOptions or DecisionKind.AssignDamage))
+        {
+            return $"pendingMessageCount={snapshot.PendingMessageCount} kind={raw.Kind} legal={pruned.Count}";
+        }
+
+        return $"unknown blocker kind={raw.Kind} legal={pruned.Count} pending={snapshot.PendingMessageCount}";
+    }
+
     /// <summary>
     /// UI Keep was clicked — do not Clear Mulligan lock (needed for Main1 sticky unlock).
     /// </summary>
@@ -150,6 +207,17 @@ public sealed class StateEngine : IStateEngine
         _lastEmittedDecisionId = 0;
         _lastEmittedSignature = null;
         TryPromoteStickyPriority();
+    }
+
+    /// <summary>
+    /// Previous Keep SendInput was not confirmed (still mulligan / turn 0) — re-emit Keep.
+    /// </summary>
+    public void AllowMulliganRetry()
+    {
+        _promptTracker.ClearMulliganUiAnswered();
+        _lastEmittedDecisionId = 0;
+        _lastEmittedSignature = null;
+        TryEmitDecision();
     }
 
     /// <summary>
@@ -219,10 +287,14 @@ public sealed class StateEngine : IStateEngine
                 _lastEmittedSignature = null;
             }
 
+            // If unlock left MainPhase with only stale ids, prune clears prompt to None —
+            // try again after clear so a later Diff with fresh actions can open.
             return;
         }
 
         _promptTracker.ApplyGameStateActions(seatActions, seatId, _reducer.State.Turn);
+        // Fresh actions must be allowed to emit even if a prior pending>0 attempt blocked.
+        _lastEmittedSignature = null;
     }
 
     private void UpdateSeatId(string messageType, JsonElement message)

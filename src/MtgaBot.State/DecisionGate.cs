@@ -20,6 +20,14 @@ public sealed class DecisionGate
             return true;
         }
 
+        // Main1/Main2 often stay at pendingMessageCount>0 while legal Play/Cast are already
+        // valid (live: pending=2, legal=7 — land scan never started). Preflight still
+        // re-checks before actuate.
+        if (decision.Kind == DecisionKind.MainPhase)
+        {
+            return true;
+        }
+
         return snapshot.PendingMessageCount == 0;
     }
 
