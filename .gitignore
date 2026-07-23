@@ -38,3 +38,8 @@ Thumbs.db
 ## Local data / runtime
 runtime/
 data/cards.json
+
+# Live land-only debug traces (regenerated each run)
+data/live-last.jsonl
+data/live-last.trace.txt
+
