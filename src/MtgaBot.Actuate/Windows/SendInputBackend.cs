@@ -33,6 +33,12 @@ public sealed class SendInputBackend : IInputBackend
                 await Task.Delay(80, ct).ConfigureAwait(false);
                 MouseClick(dbl.Button);
                 break;
+            case MouseDownAction down:
+                MouseButtonEvent(down.Button, down: true);
+                break;
+            case MouseUpAction up:
+                MouseButtonEvent(up.Button, down: false);
+                break;
             case KeyPressAction key when string.Equals(key.Key, "Enter", StringComparison.OrdinalIgnoreCase):
                 KeyTap(0x0D); // VK_RETURN
                 break;
@@ -84,14 +90,19 @@ public sealed class SendInputBackend : IInputBackend
 
     private static void MouseClick(MouseButton button)
     {
-        var (down, up) = button == MouseButton.Right
-            ? (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP)
-            : (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP);
+        MouseButtonEvent(button, down: true);
+        MouseButtonEvent(button, down: false);
+    }
+
+    private static void MouseButtonEvent(MouseButton button, bool down)
+    {
+        var flags = button == MouseButton.Right
+            ? (down ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_RIGHTUP)
+            : (down ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_LEFTUP);
 
         SendOrThrow(
         [
-            new INPUT { Type = INPUT_MOUSE, U = new InputUnion { Mi = new MOUSEINPUT { DwFlags = down } } },
-            new INPUT { Type = INPUT_MOUSE, U = new InputUnion { Mi = new MOUSEINPUT { DwFlags = up } } },
+            new INPUT { Type = INPUT_MOUSE, U = new InputUnion { Mi = new MOUSEINPUT { DwFlags = flags } } },
         ]);
     }
 

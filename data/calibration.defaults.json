@@ -2,6 +2,7 @@
   "design_width": 1920,
   "design_height": 1080,
   "hand_scan_step": 10,
+  "land_drag_up": 750,
   "click_targets": {
     "keep_hand": { "x": 1101, "y": 870 },
     "mulligan": { "x": 801, "y": 870 },

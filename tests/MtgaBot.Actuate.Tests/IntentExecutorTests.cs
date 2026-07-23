@@ -20,14 +20,15 @@ public class IntentExecutorTests
     }
 
     [Fact]
-    public async Task Pass_ClicksNextTwice()
+    public async Task Pass_ClicksNextOnce()
     {
         var executor = CreateExecutor();
         var result = await executor.ExecuteAsync(new PassPriorityIntent(), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Contains(result.Actions, a => a is MoveMouseAction m && m.ScreenX == 1755 && m.ScreenY == 944);
-        Assert.Equal(2, result.Actions.OfType<ClickAction>().Count());
+        Assert.Single(result.Actions.OfType<MouseDownAction>());
+        Assert.Single(result.Actions.OfType<MouseUpAction>());
     }
 
     [Fact]
@@ -38,7 +39,8 @@ public class IntentExecutorTests
 
         Assert.True(result.Success);
         Assert.Contains(result.Actions, a => a is MoveMouseAction m && m.ScreenX == 1101 && m.ScreenY == 870);
-        Assert.Single(result.Actions.OfType<ClickAction>());
+        Assert.Single(result.Actions.OfType<MouseDownAction>());
+        Assert.Single(result.Actions.OfType<MouseUpAction>());
     }
 
     [Fact]
@@ -48,7 +50,7 @@ public class IntentExecutorTests
         var result = await executor.ExecuteAsync(new AttackAllIntent(), CancellationToken.None);
 
         Assert.True(result.Success);
-        Assert.Equal(2, result.Actions.OfType<ClickAction>().Count());
+        Assert.Equal(2, result.Actions.OfType<MouseDownAction>().Count());
     }
 
     [Fact]
@@ -65,16 +67,33 @@ public class IntentExecutorTests
     }
 
     [Fact]
-    public async Task PlayLand_HoverThenSingleClick()
+    public async Task PlayLand_InventoryThenDragUp()
     {
-        var executor = CreateExecutor(new ImmediateHoverObjectIdSource());
+        var executor = CreateExecutor(new ImmediateHoverObjectIdSource(hoverId: 42));
         var result = await executor.ExecuteAsync(new PlayLandIntent(42), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(ActuateOutcomeKind.UiSucceeded, result.Kind);
         Assert.Equal(42, result.TargetInstanceId);
-        Assert.Contains(result.Actions, a => a is ClickAction);
+        Assert.Contains(result.Actions, a => a is MouseDownAction);
+        Assert.Contains(result.Actions, a => a is MouseUpAction);
         Assert.DoesNotContain(result.Actions, a => a is DoubleClickAction);
+        Assert.DoesNotContain(result.Actions, a => a is ClickAction);
+
+        // Drag ends above the hand scan line.
+        var dragMoves = result.Actions.OfType<MoveMouseAction>().ToList();
+        Assert.Contains(dragMoves, m => m.ScreenY < 1050);
+    }
+
+    [Fact]
+    public async Task PlayLand_HoverMiss_WhenLandNotInInventory()
+    {
+        var executor = CreateExecutor(new ImmediateHoverObjectIdSource(hoverId: 7));
+        var result = await executor.ExecuteAsync(new PlayLandIntent(42), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(ActuateOutcomeKind.HoverMiss, result.Kind);
+        Assert.DoesNotContain(result.Actions, a => a is MouseDownAction);
     }
 
     [Fact]

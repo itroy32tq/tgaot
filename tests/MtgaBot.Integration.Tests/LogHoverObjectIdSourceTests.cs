@@ -37,4 +37,27 @@ public class LogHoverObjectIdSourceTests
         var ok = await source.WaitForAsync(7, TimeSpan.FromMilliseconds(30), CancellationToken.None);
         Assert.False(ok);
     }
+
+    [Fact]
+    public async Task WaitForAny_ReturnsObservedId()
+    {
+        var source = new LogHoverObjectIdSource();
+        source.Reset();
+
+        var wait = source.WaitForAnyAsync(TimeSpan.FromSeconds(2), CancellationToken.None);
+        await Task.Delay(20);
+        source.ObserveLine("""{"greToClientEvent":{"greToClientMessages":[{"uiMessage":{"hover":{"objectId":160}}}]}}""");
+
+        Assert.Equal(160, await wait);
+    }
+
+    [Fact]
+    public async Task WaitForAny_TimeoutOnMiss()
+    {
+        var source = new LogHoverObjectIdSource();
+        source.Reset();
+
+        var id = await source.WaitForAnyAsync(TimeSpan.FromMilliseconds(40), CancellationToken.None);
+        Assert.Null(id);
+    }
 }

@@ -29,6 +29,24 @@ public class CalibrationLoaderTests
         Assert.Equal(1755, profile.Next.X);
         Assert.Equal(1050, profile.HandScanP1.Y);
         Assert.Equal(801, profile.Mulligan.X); // default fallback
+        Assert.Equal(750, profile.LandDragUpDesign);
+    }
+
+    [Fact]
+    public void Parse_LandDragUp()
+    {
+        const string json = """
+                            {
+                              "land_drag_up": 350,
+                              "click_targets": {
+                                "keep_hand": { "x": 1101, "y": 870 }
+                              }
+                            }
+                            """;
+
+        using var doc = JsonDocument.Parse(json);
+        var profile = CalibrationLoader.Parse(doc.RootElement);
+        Assert.Equal(350, profile.LandDragUpDesign);
     }
 
     [Fact]

@@ -70,7 +70,8 @@ public static class CalibrationLoader
             OpponentAvatar: ReadPoint(targets, "opponent_avatar", defaults.OpponentAvatar),
             HandScanP1: ReadNestedPoint(targets, "hand_scan_points", "p1", defaults.HandScanP1),
             HandScanP2: ReadNestedPoint(targets, "hand_scan_points", "p2", defaults.HandScanP2),
-            HandScanStep: ReadInt(root, "hand_scan_step", defaults.HandScanStep));
+            HandScanStep: ReadInt(root, "hand_scan_step", defaults.HandScanStep),
+            LandDragUpDesign: ReadInt(root, "land_drag_up", defaults.LandDragUpDesign));
     }
 
     private static DesignPoint ReadPoint(JsonElement parent, string name, DesignPoint fallback)
